@@ -256,10 +256,9 @@ graceful failure).
   a later retry (beyond still being available in memory via `getCapturedEvents()`).
   Matches the project's "simplest working implementation" guardrail; revisit only if a
   real use case needs delivery guarantees.
-- No browser tool was available in this session to click through the demo end-to-end
-  after this change; verification relied on the Vitest suite plus the curl checks
-  above. Please give the buttons a click and check the console shows
-  `[mini-sentry] transport endpoint responded with HTTP 404` alongside each capture.
+- **Follow-up 2026-08-25**: user confirmed live in Chrome (screenshot reviewed) —
+  `[mini-sentry] transport endpoint responded with HTTP 404` appears in the console
+  immediately after each capture, exactly as designed.
 - Nothing is received anywhere — `/mini-sentry/collect` has no backend (Phase 7+,
   explicitly deferred). This phase only proves the SDK's send-side behavior.
 
