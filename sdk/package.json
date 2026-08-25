@@ -1,0 +1,21 @@
+{
+  "name": "@mini-sentry/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Framework-agnostic client-side error monitoring SDK",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.0"
+  }
+}
