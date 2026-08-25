@@ -22,7 +22,7 @@ repository state (not assumed from a prior session).
 | Phase | Goal | Status |
 |-------|------|--------|
 | 0 | Repository foundation — npm workspaces monorepo, TS build, demo scaffold | Complete |
-| 1 | SDK core — `init()`, configuration, safe internal error handling | Not started |
+| 1 | SDK core — `init()`, configuration, safe internal error handling | Complete |
 | 2 | Error capture — `window.onerror`, `unhandledrejection`, normalized event format | Not started |
 | 3 | Network error capture — fetch interception, non-success responses | Not started |
 | 4 | Local event transport — POST to configurable endpoint, graceful failure | Not started |
