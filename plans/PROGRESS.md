@@ -139,7 +139,7 @@ normalized event format).
 - No floating user-facing notification yet (Phase 5) — capture is currently only
   visible via the demo's log element and the console.
 
-**Commit:** see git log for the "Phase 2" commit.
+**Commit:** `aca5574` — "Phase 2: error capture (window.onerror, unhandledrejection)"
 
 **Next phase:** Phase 3 — Network Error Capture (fetch interception, non-success
 responses).
