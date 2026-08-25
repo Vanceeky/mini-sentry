@@ -320,6 +320,7 @@ graceful failure)"
   isolation this phase actually cares about (CSS never leaking either direction) holds
   either way.
 
-**Commit:** _pending_
+**Commit:** `2afcd28` — "Phase 5: floating user notification (Shadow DOM UI,
+auto-dismiss)"
 
 **Next phase:** Phase 6 — SDK Polish (bundle size, privacy/perf review, README).
