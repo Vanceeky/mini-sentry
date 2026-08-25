@@ -259,6 +259,7 @@ graceful failure).
 - Nothing is received anywhere — `/mini-sentry/collect` has no backend (Phase 7+,
   explicitly deferred). This phase only proves the SDK's send-side behavior.
 
-**Commit:** _pending_
+**Commit:** `0f3eb2d` — "Phase 4: local event transport (POST to configurable endpoint,
+graceful failure)"
 
 **Next phase:** Phase 5 — Floating User Notification (Shadow DOM UI, auto-dismiss).
