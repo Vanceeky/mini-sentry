@@ -192,7 +192,8 @@ responses).
 - Nothing is sent anywhere yet — events are only buffered in memory (Phase 4 adds
   transport).
 
-**Commit:** _pending_
+**Commit:** `c2ef6cf` — "Phase 3: network error capture (fetch interception, non-success
+responses)"
 
 **Next phase:** Phase 4 — Local Event Transport (POST to configurable endpoint,
 graceful failure).
