@@ -388,7 +388,8 @@ auto-dismiss)"
   behavior in a live page (e.g. by putting a `?token=...` in the demo URL); verification
   relied on the Vitest suite plus the manual bundle-size/build checks above.
 
-**Commit:** _pending_
+**Commit:** `c949878` — "Phase 6: SDK polish (bundle size review, URL privacy
+scrubbing, defensive copy, README)"
 
 **Next phase:** none currently planned — Phases 0–6 (the SDK MVP) are complete.
 Phases 7+ (backend, database, dashboard, deployment, publishing) remain explicitly out
