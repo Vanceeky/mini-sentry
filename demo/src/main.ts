@@ -13,7 +13,12 @@ function refreshCaptureLog() {
   logEl.textContent =
     events.length === 0
       ? "No events captured yet."
-      : events.map((e) => `[${e.type}] ${e.message}`).join("\n");
+      : events
+          .map((e) => {
+            const request = e.request ? ` (${e.request.method} ${e.request.url})` : "";
+            return `[${e.type}] ${e.message}${request}`;
+          })
+          .join("\n");
 }
 
 init({ apiKey: "demo_local_key" });
@@ -36,6 +41,24 @@ document.querySelector<HTMLButtonElement>("#trigger-error")?.addEventListener("c
 document.querySelector<HTMLButtonElement>("#trigger-rejection")?.addEventListener("click", () => {
   Promise.reject(new Error("Demo unhandled promise rejection"));
   setTimeout(refreshCaptureLog, 50);
+});
+
+document.querySelector<HTMLButtonElement>("#trigger-http-error")?.addEventListener("click", () => {
+  // Same-origin request the dev server has no route for, so it comes back 404.
+  fetch("/definitely-not-a-real-endpoint")
+    .catch(() => {
+      // Ignored here; the SDK's fetch interceptor already captured it.
+    })
+    .finally(() => setTimeout(refreshCaptureLog, 50));
+});
+
+document.querySelector<HTMLButtonElement>("#trigger-network-error")?.addEventListener("click", () => {
+  // A host that can't resolve, so the fetch itself rejects (no response at all).
+  fetch("https://this-domain-does-not-exist.invalid/")
+    .catch(() => {
+      // Ignored here; the SDK's fetch interceptor already captured it.
+    })
+    .finally(() => setTimeout(refreshCaptureLog, 50));
 });
 
 refreshCaptureLog();

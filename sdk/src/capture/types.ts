@@ -1,4 +1,4 @@
-export type CapturedEventType = "error" | "unhandledrejection";
+export type CapturedEventType = "error" | "unhandledrejection" | "http";
 
 export interface CapturedEvent {
   id: string;
@@ -11,5 +11,12 @@ export interface CapturedEvent {
   environment: "browser";
   browser: {
     userAgent: string;
+  };
+  /** Present only for "http" events: the request that failed or came back non-success. */
+  request?: {
+    url: string;
+    method: string;
+    /** Absent when the request itself failed (network error) rather than returning a response. */
+    statusCode?: number;
   };
 }

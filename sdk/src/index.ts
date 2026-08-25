@@ -1,4 +1,5 @@
 import { installGlobalErrorListeners } from "./capture/listeners";
+import { installFetchInterceptor } from "./capture/network";
 import { getRecordedEvents, recordEvent } from "./capture/store";
 import type { CapturedEvent } from "./capture/types";
 import { resolveConfig, validateConfig } from "./core/config";
@@ -30,10 +31,12 @@ export function init(config: MiniSentryConfig): void {
     }
 
     setInitialized(generateId(), resolved);
-    installGlobalErrorListeners((event) => {
+    const onCapture = (event: CapturedEvent): void => {
       recordEvent(event);
       info(`captured ${event.type} event`, event);
-    });
+    };
+    installGlobalErrorListeners(onCapture);
+    installFetchInterceptor(onCapture);
   }, "init() failed unexpectedly");
 }
 

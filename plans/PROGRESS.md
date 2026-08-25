@@ -143,3 +143,56 @@ normalized event format).
 
 **Next phase:** Phase 3 — Network Error Capture (fetch interception, non-success
 responses).
+
+## Phase 3 — Network Error Capture
+
+**Status:** Complete
+
+**What was built:**
+- `sdk/src/capture/types.ts` — `CapturedEventType` gained `"http"`, and `CapturedEvent`
+  gained an optional `request: { url, method, statusCode? }` field (populated only for
+  `"http"` events; `statusCode` is absent when the request failed outright rather than
+  returning a response).
+- `sdk/src/capture/network.ts` — `installFetchInterceptor()`, which wraps
+  `window.fetch` once: on a resolved response with `!response.ok` (status outside
+  200-299) it captures an `"http"` event with the status code; on a rejected fetch
+  (network failure, CORS, DNS, etc.) it captures one without a status code. The
+  original response is always returned and the original rejection always rethrown
+  unchanged — the host app's fetch semantics are untouched. Only method/URL/status are
+  captured, never headers or request/response bodies, per the privacy guardrail.
+- `index.ts`: `init()` now also calls `installFetchInterceptor()`, sharing the same
+  capture handler (record + log) used for the Phase 2 listeners.
+- `demo/index.html`/`demo/src/main.ts`: two new buttons ("Trigger Failed Fetch (404)"
+  hitting a same-origin route the dev server has no handler for, "Trigger Network
+  Error" hitting an unresolvable host), and the capture log now renders the
+  `request.method`/`request.url` for `"http"` events.
+
+**Tests performed:**
+- `npm run typecheck` — clean.
+- `npm run build` — sdk emits `dist/` (verified `network.js`/`network.d.ts` present,
+  no test files leaked), demo's Vite build succeeds.
+- `npm run test` — 37 Vitest tests across 9 files (6 new in `network.test.ts`):
+  non-success response captured with the response passed through unchanged to the
+  caller, a successful (2xx) response not captured, a rejected fetch captured and
+  rethrown unchanged, method defaulting to `GET` when unspecified, method read off a
+  `Request` object when no `init` is passed, and the install-once guard.
+- Manually confirmed via the Vite dev server (curl) that the demo serves the two new
+  buttons and that the built bundle imports `installFetchInterceptor`.
+
+**Known limitations:**
+- No browser tool was available in this session, so clicking the two new buttons and
+  watching the log update was not visually verified in an actual browser window;
+  verification relied on the Vitest suite (which exercises the exact same
+  intercept → capture path against a mocked `window.fetch`) plus confirming the dev
+  server serves the updated bundle. Please give the two new buttons a click in a real
+  browser when convenient.
+- XHR (`XMLHttpRequest`) is not intercepted, only `fetch` — deferred per
+  `DECISIONS.md`'s Phase 0 note that XHR interception may be skipped if it adds
+  substantial complexity relative to its value for this MVP.
+- Nothing is sent anywhere yet — events are only buffered in memory (Phase 4 adds
+  transport).
+
+**Commit:** _pending_
+
+**Next phase:** Phase 4 — Local Event Transport (POST to configurable endpoint,
+graceful failure).

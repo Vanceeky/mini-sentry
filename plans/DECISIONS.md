@@ -83,10 +83,36 @@ re-litigate them without cause.
   global listener — waiting for a real uncaught throw to propagate through the test
   runner's own event loop would be flaky and environment-dependent.
 
+## Phase 3
+
+- **Only `fetch` is intercepted, not XHR**: confirmed the Phase 0 deferral — XHR
+  interception is a separate, more invasive patch (`XMLHttpRequest.prototype.open`/
+  `send`) for marginal MVP value when most modern code (and any framework this SDK
+  would sit under) uses `fetch`. Can be added later if a real host app needs it.
+- **What counts as a "non-success" response**: `!response.ok`, i.e. any status outside
+  200-299 (covers both 4xx and 5xx) — matches the Fetch API's own notion of success and
+  needs no extra configuration.
+- **Network failure vs. non-success response are both `type: "http"`**: rather than a
+  separate event type, a rejected fetch (DNS failure, CORS, offline, etc.) is
+  represented as the same `"http"` event with `request.statusCode` left `undefined` —
+  there's no response to report a status from. Consumers of `CapturedEvent` can
+  distinguish the two cases by checking whether `statusCode` is present.
+- **No headers or bodies captured**: only `request.url`, `request.method`, and (when
+  available) the response status code are recorded. Per the project's privacy
+  guardrail, headers/bodies can carry auth tokens, cookies, or other sensitive values,
+  and capturing them wasn't asked for.
+- **Interceptor always returns/rethrows the original value unchanged**: the wrapped
+  `fetch` never mutates the `Response` or swallows a rejection — capture is a side
+  effect via `onCapture`, observed after the fact, so the host app's own `.then`/
+  `.catch` chains see exactly what they would have without the SDK installed.
+- **Install-once guard, module-level state**: mirrors the Phase 2 listener pattern
+  (`installed` flag) rather than tracking/restoring the previous `fetch` — this SDK has
+  no `destroy()`/uninstall API yet, so there's nothing to restore to.
+
 ## Deferred (future phases, not implemented now)
 
-- XHR interception (Phase 3): only fetch will be intercepted initially; the brief
-  explicitly allows deferring XHR if it adds substantial complexity. Revisit and decide
-  when Phase 3 is reached.
+- XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
+  explicitly allows deferring XHR if it adds substantial complexity. Revisit if a real
+  host app needs it.
 - Any backend/DB/dashboard/auth/deployment/publishing work (Phases 7–13): explicitly
   out of scope until instructed.
