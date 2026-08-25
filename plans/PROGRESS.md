@@ -81,7 +81,7 @@ handling).
   architecture are not created yet; they'll be added in the phases that need them
   (2–5) rather than as empty scaffolding now.
 
-**Commit:** see git log for the "Phase 1" commit.
+**Commit:** `afbaf64` — "Phase 1: SDK core (init, configuration, safe error handling)"
 
 **Next phase:** Phase 2 — Error Capture (`window.onerror`, `unhandledrejection`,
 normalized event format).
