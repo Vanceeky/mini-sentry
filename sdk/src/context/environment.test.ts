@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { captureEnvironment } from "./environment";
 
 describe("captureEnvironment", () => {
@@ -8,5 +8,19 @@ describe("captureEnvironment", () => {
     expect(typeof env.url).toBe("string");
     expect(typeof env.browser.userAgent).toBe("string");
     expect(env.browser.userAgent.length).toBeGreaterThan(0);
+  });
+
+  describe("with a sensitive query param on the page URL", () => {
+    const originalUrl = window.location.href;
+
+    afterEach(() => {
+      window.history.replaceState(null, "", originalUrl);
+    });
+
+    it("redacts it before capturing", () => {
+      window.history.replaceState(null, "", "/?session_token=super-secret");
+      expect(captureEnvironment().url).toContain("session_token=%5BRedacted%5D");
+      expect(captureEnvironment().url).not.toContain("super-secret");
+    });
   });
 });

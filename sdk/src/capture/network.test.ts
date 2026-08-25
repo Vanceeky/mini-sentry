@@ -79,6 +79,19 @@ describe("installFetchInterceptor", () => {
     expect((received[0] as { request: { method: string } }).request.method).toBe("POST");
   });
 
+  it("redacts a sensitive query param from the captured request URL", async () => {
+    window.fetch = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
+    const { installFetchInterceptor } = await freshNetwork();
+    const received: unknown[] = [];
+
+    installFetchInterceptor((event) => received.push(event));
+    await window.fetch("https://api.example.com/things?api_key=super-secret");
+
+    const requestUrl = (received[0] as { request: { url: string } }).request.url;
+    expect(requestUrl).toContain("api_key=%5BRedacted%5D");
+    expect(requestUrl).not.toContain("super-secret");
+  });
+
   it("only installs once even if called twice", async () => {
     const firstFetch = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
     window.fetch = firstFetch;

@@ -324,3 +324,72 @@ graceful failure)"
 auto-dismiss)"
 
 **Next phase:** Phase 6 — SDK Polish (bundle size, privacy/perf review, README).
+
+## Phase 6 — SDK Polish
+
+**Status:** Complete
+
+**What was built:**
+- **Bundle size review**: confirmed the SDK has zero runtime dependencies (only
+  `typescript`/`vitest`/`jsdom` as devDependencies). The demo's Vite production build —
+  SDK + demo app code together, minified — is `8.32 kB` (`3.37 kB` gzipped). Revisited
+  the Phase 0 "plain `tsc`, no bundler" decision (flagged for reconsideration here) and
+  kept it: the SDK ships plain ESM `dist/`, and any real consumer's own bundler (Vite,
+  webpack, etc.) already does tree-shaking/minification, as the demo build shows. No
+  UMD/IIFE `<script>`-tag build was added — never asked for, and nothing in this repo
+  consumes the SDK that way.
+- **Privacy review** — audited every field on `CapturedEvent` against the project's
+  privacy guardrail and found one real gap: the captured page URL and request URL
+  (`location.href`, and a `fetch` call's target URL) could contain a sensitive
+  query-string value (e.g. `?token=...`, `?api_key=...`) verbatim. Fixed with
+  `sdk/src/core/scrub.ts`'s `scrubUrl()`: redacts the value of any query parameter whose
+  name matches `/token|secret|password|passwd|auth|key|session|jwt|credential/i` to
+  `[Redacted]`, leaving the rest of the URL (and any non-sensitive params) untouched; a
+  URL with nothing to redact is returned byte-for-byte unchanged. Wired into
+  `context/environment.ts` (page URL) and `capture/network.ts` (request URL).
+  Everything else already matched the guardrail (no headers/bodies/cookies/form
+  values ever read) and is now documented explicitly in the new READMEs.
+- **Defensive-copy fix** — `capture/store.ts`'s `getRecordedEvents()` was returning the
+  live internal array (typed `readonly`, but TypeScript's `readonly` is compile-time
+  only). A caller could still mutate it, corrupting the SDK's internal buffer. Now
+  returns a shallow copy (`[...events]`); trivial cost given the 50-item cap.
+- **Perf review** — confirmed no polling/interval loops anywhere, all listeners/
+  interceptors install at most once (guarded), the ring buffer (50) and the
+  notification cap (3) both bound memory/DOM growth under a burst of errors, and
+  `array.shift()`/`splice()` costs are negligible at these sizes. No changes needed.
+- **`README.md`** (repo root) and **`sdk/README.md`** added — project overview, dev
+  setup, usage, config table, what's captured, privacy guarantees (including the new
+  scrubbing behavior and its documented gaps), and safety guarantees, with pointers to
+  `plans/` for full phase-by-phase detail.
+
+**Tests performed:**
+- `npm run typecheck` — clean.
+- `npm run build` — sdk emits `dist/` (`core/scrub.js`/`.d.ts` present, no test files
+  leaked), demo's Vite build succeeds (`8.32 kB` / `3.37 kB` gzip, noted above).
+- `npm run test` — 57 Vitest tests across 12 files (9 new): `core/scrub.test.ts` (6 —
+  redacts a single/multiple sensitive params case-insensitively, leaves a clean URL
+  byte-for-byte unchanged, resolves a relative URL against `location` before scrubbing,
+  never throws on a garbled string, empty string unchanged), plus one new case each in
+  `environment.test.ts` (page URL redaction via `history.replaceState`),
+  `network.test.ts` (request URL redaction), and `store.test.ts` (mutating a returned
+  snapshot doesn't affect the internal buffer).
+
+**Known limitations:**
+- Query-string scrubbing is name-pattern-based, not exhaustive — a sensitive value
+  under an unexpected param name (e.g. `?x=<secret>`) would not be redacted. This is a
+  heuristic, not a guarantee; documented in both READMEs.
+- Hash-fragment secrets (e.g. an OAuth implicit-flow `#access_token=...`) are not
+  scrubbed — only query-string parameters are (see `scrub.ts`'s doc comment for why).
+- Error `message`/`stack` are still captured verbatim — no scanning/redaction of
+  arbitrary text, since that would need a much heavier heuristic (or ML-based) approach
+  with a real false-positive risk; documented as the host app's responsibility to avoid
+  putting secrets in thrown error messages.
+- No browser tool was available in this session to visually confirm the redaction
+  behavior in a live page (e.g. by putting a `?token=...` in the demo URL); verification
+  relied on the Vitest suite plus the manual bundle-size/build checks above.
+
+**Commit:** _pending_
+
+**Next phase:** none currently planned — Phases 0–6 (the SDK MVP) are complete.
+Phases 7+ (backend, database, dashboard, deployment, publishing) remain explicitly out
+of scope until instructed.

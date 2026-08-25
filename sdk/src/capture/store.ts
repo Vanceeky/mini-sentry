@@ -12,6 +12,7 @@ export function recordEvent(event: CapturedEvent): void {
   }
 }
 
+/** Returns a snapshot copy — mutating the result must never affect internal state. */
 export function getRecordedEvents(): readonly CapturedEvent[] {
-  return events;
+  return [...events];
 }

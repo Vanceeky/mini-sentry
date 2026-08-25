@@ -1,6 +1,7 @@
 import { captureEnvironment } from "../context/environment";
 import { generateId } from "../core/id";
 import { safeExec, warn } from "../core/safe";
+import { scrubUrl } from "../core/scrub";
 import type { CapturedEvent } from "./types";
 
 export type NetworkCaptureHandler = (event: CapturedEvent) => void;
@@ -8,9 +9,9 @@ export type NetworkCaptureHandler = (event: CapturedEvent) => void;
 let installed = false;
 
 function resolveRequestUrl(input: RequestInfo | URL): string {
-  if (typeof input === "string") return input;
-  if (input instanceof URL) return input.href;
-  return input.url;
+  if (typeof input === "string") return scrubUrl(input);
+  if (input instanceof URL) return scrubUrl(input.href);
+  return scrubUrl(input.url);
 }
 
 function resolveMethod(input: RequestInfo | URL, init?: RequestInit): string {

@@ -27,4 +27,13 @@ describe("capture store", () => {
     }
     expect(getRecordedEvents().length).toBeLessThanOrEqual(50);
   });
+
+  it("returns a snapshot copy, so mutating the result cannot corrupt internal state", () => {
+    const before = getRecordedEvents().length;
+    const snapshot = getRecordedEvents() as CapturedEvent[];
+    snapshot.push(makeEvent("injected"));
+    snapshot.length = 0;
+
+    expect(getRecordedEvents().length).toBe(before);
+  });
 });

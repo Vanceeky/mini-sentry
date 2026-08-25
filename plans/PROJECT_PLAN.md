@@ -27,7 +27,7 @@ repository state (not assumed from a prior session).
 | 3 | Network error capture — fetch interception, non-success responses | Complete |
 | 4 | Local event transport — POST to configurable endpoint, graceful failure | Complete |
 | 5 | Floating user notification — Shadow DOM UI, auto-dismiss | Complete |
-| 6 | SDK polish — bundle size, privacy/perf review, README | Not started |
+| 6 | SDK polish — bundle size, privacy/perf review, README | Complete |
 | 7+ | Backend, DB, dashboard, deployment, publishing — explicitly deferred | Not started |
 
 Phases 7–13 (Next.js backend, PostgreSQL, project/API-key management, dashboard,

@@ -168,6 +168,43 @@ re-litigate them without cause.
   describes the notification as part of the MVP experience; add a flag later only if a
   concrete host app needs silent/headless capture.
 
+## Phase 6
+
+- **Bundle tool decision, revisited and kept**: Phase 0 flagged "revisit plain `tsc`
+  vs. a bundler in Phase 6 if output format needs reconsidering." Kept plain `tsc`: the
+  SDK has zero runtime dependencies, ships plain ESM, and a real consumer's own bundler
+  already minifies/tree-shakes it (the demo's Vite build of SDK+app together is `8.32
+  kB` / `3.37 kB` gzip). A UMD/IIFE `<script>`-tag build was never requested and
+  nothing in this repo needs it; revisit only if direct `<script>`-tag consumption
+  becomes an actual requirement.
+- **Query-param scrubbing, not full URL/message redaction**: `scrubUrl()` only redacts
+  query-string parameter *values* whose *name* matches a small pattern
+  (token/secret/password/key/session/jwt/auth/credential). Deliberately not attempting
+  to scan/redact arbitrary substrings of `message`/`stack`/URL path segments — that's a
+  much harder problem (heavy false-positive risk, e.g. any English word containing
+  "key") that a hackathon-scope SDK shouldn't attempt; a name-based query-param
+  heuristic is precedented (most error trackers do exactly this) and low-risk.
+- **Hash fragments intentionally not scrubbed**: an OAuth implicit-flow style
+  `#access_token=...` fragment is common, but a page's hash can also just be a
+  client-side route (`#/settings`); parsing it as a query string to redact could
+  corrupt that route. Scoped scrubbing to query strings only, where "is this a
+  key=value pair" is unambiguous.
+- **Scrubbing changes a redacted relative URL to absolute**: `scrubUrl("/api/x?token=1")`
+  returns an absolute URL (resolved against `location`) once it redacts something,
+  because `URL.toString()` always serializes absolutely — but a URL with nothing to
+  redact is returned as the exact original string, unchanged in both content and
+  format. Accepted as a minor, redaction-only side effect rather than hand-rolling
+  string-level query editing to preserve relative form.
+- **`getRecordedEvents()` returns a copy, not the live array**: closes a latent gap
+  where TypeScript's `readonly` modifier (compile-time only) let a caller mutate the
+  SDK's actual internal event buffer. Shallow-copies on every call; negligible cost
+  given the existing 50-item cap.
+- **READMEs added at both repo root and `sdk/`**: root README is project-level
+  (structure, dev setup, status); `sdk/README.md` is the package-level API/usage/
+  privacy reference — split so a future `sdk/` package consumer doesn't need the whole
+  monorepo's context, matching how the package is already structured as an independent
+  workspace.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
