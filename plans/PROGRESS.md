@@ -29,7 +29,7 @@ assumed). Update at the end of every phase.
   to prove the build/import pipeline. Real API surface starts in Phase 1.
 - No linting/formatting tool configured yet (deferred, see DECISIONS.md).
 
-**Commit:** see git log for the "Phase 0" commit.
+**Commit:** `10bd3dd` — "Phase 0: repository foundation"
 
 **Next phase:** Phase 1 — SDK Core (`init()`, configuration, safe internal error
 handling).
