@@ -263,3 +263,63 @@ graceful failure).
 graceful failure)"
 
 **Next phase:** Phase 5 — Floating User Notification (Shadow DOM UI, auto-dismiss).
+
+## Phase 5 — Floating User Notification
+
+**Status:** Complete
+
+**What was built:**
+- `sdk/src/ui/notification.ts` — `showCaptureNotification(event)`: renders a small
+  toast into a Shadow DOM host (`mode: "open"`) appended once to `document.body`, so
+  the host page's CSS can never bleed into the notification (or the notification's
+  CSS into the host page). The host `<div>` itself is `position: fixed; inset: 0;
+  pointer-events: none`, so it never blocks clicks anywhere on the page — only the
+  individual toast elements (inside the shadow root) opt back into `pointer-events:
+  auto`, for their dismiss button. Each toast auto-dismisses after 6s, or immediately
+  on clicking its `×` button; both paths go through the same `removeToast()`
+  (`clearTimeout` + DOM removal) so there's no dangling timer either way. Caps
+  simultaneously visible toasts at 3 (oldest evicted first), so a burst of rapid
+  errors can't flood the page with DOM nodes. The message shown is just
+  `type: message` (e.g. "Error captured: boom") — no stack trace or request URL in the
+  UI itself, since that level of detail belongs in the console/devtools, not a
+  transient toast.
+- `index.ts`: the shared `onCapture` handler now also calls
+  `showCaptureNotification(event)` — every capture path (JS errors, unhandled
+  rejections, non-success/failed HTTP requests) now shows a toast, independent of
+  whether a transport endpoint is configured.
+
+**Tests performed:**
+- `npm run typecheck` — clean.
+- `npm run build` — sdk emits `dist/` (`ui/notification.js`/`.d.ts` present, no test
+  files leaked), demo's Vite build succeeds.
+- `npm run test` — 48 Vitest tests across 11 files (6 new in `ui/notification.test.ts`,
+  using `vi.useFakeTimers()`): a toast renders inside a Shadow DOM host appended to
+  `document.body`; a second/third notification reuses the same host instead of
+  creating a new one; a toast auto-dismisses after the timeout; a toast dismisses
+  immediately on clicking its button; showing a 4th toast evicts the oldest (1st) while
+  keeping the newest 3; and the function never throws when no `document` is available.
+- Manually confirmed via `grep` on the built `sdk/dist/index.js`/`sdk/dist/ui/
+  notification.js` that `showCaptureNotification`/`attachShadow` are present in the
+  compiled output the demo's dev server actually serves.
+
+**Known limitations:**
+- No browser tool was available in this session to visually confirm the toast
+  appearing/auto-dismissing in a real page; verification relied on the Vitest suite
+  (which exercises the exact same Shadow DOM render/dismiss/cap logic under jsdom,
+  which has full Shadow DOM support) plus confirming the built bundle contains the new
+  code. Please click any of the four demo buttons and confirm a small dark toast
+  appears in the bottom-right corner, dismisses on click or after ~6s, and that
+  triggering 4+ events in quick succession never shows more than 3 at once.
+- No user-facing way to disable the notification UI (no `showNotifications: false` or
+  similar config option) — not asked for, and the project brief's Definition of Done
+  treats the notification as part of the MVP experience, not an opt-out. Revisit only
+  if a real host app needs headless/silent mode.
+- Uses `mode: "open"` for the shadow root (not `"closed"`), so the host page's own
+  scripts could technically reach into `host.shadowRoot` if they wanted to — chosen so
+  the SDK's own tests can assert on rendered content without a workaround; the
+  isolation this phase actually cares about (CSS never leaking either direction) holds
+  either way.
+
+**Commit:** _pending_
+
+**Next phase:** Phase 6 — SDK Polish (bundle size, privacy/perf review, README).

@@ -8,6 +8,7 @@ import { generateId } from "./core/id";
 import { info, safeExec, warn } from "./core/safe";
 import { getState, setInitialized } from "./core/state";
 import { sendEvent } from "./transport/send";
+import { showCaptureNotification } from "./ui/notification";
 
 export type { MiniSentryConfig } from "./core/config";
 export type { CapturedEvent, CapturedEventType } from "./capture/types";
@@ -35,6 +36,7 @@ export function init(config: MiniSentryConfig): void {
     const onCapture = (event: CapturedEvent): void => {
       recordEvent(event);
       info(`captured ${event.type} event`, event);
+      showCaptureNotification(event);
       if (resolved.endpoint) {
         sendEvent(resolved.endpoint, event);
       }

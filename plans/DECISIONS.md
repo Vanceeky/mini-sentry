@@ -137,6 +137,37 @@ re-litigate them without cause.
   exercised by manual testing. Switched to POST, which Vite correctly 404s for
   unmatched routes. See Phase 3 entry in `PROGRESS.md`.
 
+## Phase 5
+
+- **Shadow DOM, `mode: "open"`**: chosen over `"closed"` so the SDK's own test suite
+  can assert on rendered toast content directly (`host.shadowRoot.querySelectorAll(...)`)
+  without a workaround. The style-isolation goal this phase actually cares about (host
+  page CSS never leaking in, notification CSS never leaking out) holds identically
+  under `"open"` or `"closed"` — `"closed"` only additionally hides the shadow tree
+  from the host page's *own* scripts, which isn't a stated requirement here.
+- **One shared host, not one per toast**: a single `<div>` (Shadow DOM host) is
+  appended to `document.body` once and reused; each notification only adds/removes a
+  `.toast` element inside it. Keeps the light DOM footprint on the host page to exactly
+  one element regardless of how many notifications have been shown.
+- **Host uses `pointer-events: none`, toasts use `pointer-events: auto`**: so the
+  fixed, full-viewport host `<div>` (needed to position toasts in a corner) never
+  intercepts clicks meant for the host page underneath it — only the toast bubbles
+  themselves (and their dismiss button) are actually clickable. Directly serves the
+  "must never alter host app behavior" guardrail.
+- **6-second auto-dismiss, cap of 3 visible toasts**: arbitrary but reasonable MVP
+  defaults, not exposed as config (not asked for, and the brief doesn't call out timing
+  as configurable). The cap exists so a page throwing errors in a loop can't turn into
+  an ever-growing stack of DOM nodes.
+- **Notification text is `type: message` only** — no stack trace, no request URL/method,
+  no timestamp. Those live in the console log (Phase 2) and `getCapturedEvents()`; the
+  toast is meant to be a glanceable "something happened" signal, not a debugging
+  surface, and keeping it terse avoids ever needing to worry about overflow/wrapping of
+  arbitrarily long stack traces in a small fixed-width box.
+- **No opt-out config**: unlike `enabled` (which gates the whole SDK), there's no
+  separate flag to disable just the notification UI. The brief's Definition of Done
+  describes the notification as part of the MVP experience; add a flag later only if a
+  concrete host app needs silent/headless capture.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
