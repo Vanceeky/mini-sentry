@@ -191,6 +191,10 @@ responses).
   `404` — meaning that code path was never actually exercised. Fixed in Phase 4
   (changed to a POST, which Vite correctly 404s) and confirmed via curl; see Phase 4
   notes.
+- **Follow-up 2026-08-25**: user confirmed live in Chrome, post-fix, that "Trigger
+  Failed Fetch (404)" now correctly produces an `[http] HTTP 404 Not Found (POST
+  /definitely-not-a-real-endpoint)` entry (screenshot reviewed). All four capture
+  buttons confirmed working end-to-end in a real browser.
 - XHR (`XMLHttpRequest`) is not intercepted, only `fetch` — deferred per
   `DECISIONS.md`'s Phase 0 note that XHR interception may be skipped if it adds
   substantial complexity relative to its value for this MVP.
@@ -303,13 +307,12 @@ graceful failure)"
   compiled output the demo's dev server actually serves.
 
 **Known limitations:**
-- No browser tool was available in this session to visually confirm the toast
-  appearing/auto-dismissing in a real page; verification relied on the Vitest suite
-  (which exercises the exact same Shadow DOM render/dismiss/cap logic under jsdom,
-  which has full Shadow DOM support) plus confirming the built bundle contains the new
-  code. Please click any of the four demo buttons and confirm a small dark toast
-  appears in the bottom-right corner, dismisses on click or after ~6s, and that
-  triggering 4+ events in quick succession never shows more than 3 at once.
+- **Follow-up 2026-08-25**: user confirmed live in Chrome (screenshot reviewed) —
+  toasts render bottom-right with the expected `type: message` label (e.g. "Network
+  error captured: HTTP 404 Not Found"), and clicking all four buttons in sequence
+  multiple times showed at most 3 toasts on screen at once, with the oldest correctly
+  evicted first. Auto-dismiss timing (~6s) and manual dismiss-by-click weren't
+  separately confirmed live but are covered by the Vitest suite.
 - No user-facing way to disable the notification UI (no `showNotifications: false` or
   similar config option) — not asked for, and the project brief's Definition of Done
   treats the notification as part of the MVP experience, not an opt-out. Revisit only
