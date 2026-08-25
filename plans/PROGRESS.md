@@ -125,12 +125,11 @@ normalized event format).
   resolves `init`/`getCapturedEvents` from `@mini-sentry/sdk` correctly.
 
 **Known limitations:**
-- No browser tool was available in this session, so clicking the demo buttons and
-  watching the log update was not visually verified in an actual browser window;
-  verification relied on the Vitest suite (which exercises the exact same
-  dispatch → normalize → store path via jsdom) plus confirming the dev server serves
-  the updated bundle. Please give the two buttons a click in a real browser when you
-  get a chance and confirm the "Captured events" log updates.
+- No browser tool was available in this session, so clicking the demo buttons was not
+  verified directly by this agent — but the user confirmed live in Chrome (2026-08-25)
+  that both the "Trigger JS Error" and "Trigger Unhandled Rejection" buttons populate
+  the "Captured events" log as expected (see Phase 3 notes for the full session,
+  which also exercised this).
 - Cross-origin script errors will appear as `message: "Script error."` with no stack —
   this is a browser security restriction (`crossorigin`/CORS on the script tag), not
   something the SDK can work around.
@@ -180,12 +179,18 @@ responses).
   buttons and that the built bundle imports `installFetchInterceptor`.
 
 **Known limitations:**
-- No browser tool was available in this session, so clicking the two new buttons and
-  watching the log update was not visually verified in an actual browser window;
-  verification relied on the Vitest suite (which exercises the exact same
-  intercept → capture path against a mocked `window.fetch`) plus confirming the dev
-  server serves the updated bundle. Please give the two new buttons a click in a real
-  browser when convenient.
+- Confirmed live in Chrome by the user on 2026-08-25: the "Trigger Network Error"
+  button correctly produced an `[http]` entry (`Failed to fetch`, no status code, since
+  the request never got a response). Also visible in that same session: the installed
+  Claude for Chrome extension patches `window.fetch` itself (for its own agent/page
+  observation), which occasionally surfaces as an extra, unrelated `unhandledrejection`
+  in the demo's log — that's the extension's own instrumentation, not a bug in this
+  SDK; it's expected noise when testing with that extension active.
+- The "Trigger Failed Fetch (404)" button originally issued a GET, which Vite's dev
+  server answers with its SPA fallback (`200`, serving `index.html`) rather than a real
+  `404` — meaning that code path was never actually exercised. Fixed in Phase 4
+  (changed to a POST, which Vite correctly 404s) and confirmed via curl; see Phase 4
+  notes.
 - XHR (`XMLHttpRequest`) is not intercepted, only `fetch` — deferred per
   `DECISIONS.md`'s Phase 0 note that XHR interception may be skipped if it adds
   substantial complexity relative to its value for this MVP.
@@ -197,3 +202,63 @@ responses)"
 
 **Next phase:** Phase 4 — Local Event Transport (POST to configurable endpoint,
 graceful failure).
+
+## Phase 4 — Local Event Transport
+
+**Status:** Complete
+
+**What was built:**
+- `sdk/src/transport/send.ts` — `sendEvent(endpoint, event)`: a fire-and-forget POST of
+  a single `CapturedEvent` as JSON (`Content-Type: application/json`, `keepalive: true`
+  so the request can still complete if triggered right before the page unloads). A
+  non-2xx response or a rejected fetch only produces a console warning — never a thrown
+  exception, never surfaced to the host app. Captures its own `fetch` reference once at
+  module load time, before `capture/network.ts` ever gets a chance to patch
+  `window.fetch` — so the SDK's own outbound telemetry requests are never observed by
+  its own network interceptor (which would otherwise turn a down endpoint into an
+  `"http"` capture event, which would itself be sent, forever).
+- `index.ts`: `init()`'s shared capture handler now calls `sendEvent(resolved.endpoint,
+  event)` after recording/logging, but only when `config.endpoint` was provided — no
+  endpoint means events are still captured and buffered in memory (as before), just
+  never sent anywhere.
+- Fixed a latent bug found while re-verifying Phase 3: the demo's "Trigger Failed Fetch
+  (404)" button issued a GET, which Vite's dev server answers via its SPA fallback
+  (`200`, serving `index.html`) instead of a real `404` — so that capture path was never
+  actually exercised. Changed to a POST (Vite correctly 404s non-GET requests to
+  unmatched routes), confirmed via curl.
+- `demo/src/main.ts`: `init()` now configures `endpoint: "/mini-sentry/collect"` — a
+  route that intentionally doesn't exist yet (no backend until Phase 7+), so every
+  transport send fails and demonstrates the graceful-failure path live; the status
+  message notes this so a console warning isn't mistaken for a bug.
+
+**Tests performed:**
+- `npm run typecheck` — clean.
+- `npm run build` — sdk emits `dist/` (`transport/send.js`/`.d.ts` present, no test
+  files leaked), demo's Vite build succeeds.
+- `npm run test` — 42 Vitest tests across 10 files (5 new in `transport/send.test.ts`):
+  POSTs the correct method/headers/JSON body to the configured endpoint, warns (without
+  throwing) on a non-2xx response, warns (without throwing) when the fetch itself
+  rejects, uses the fetch reference captured at module load even after `window.fetch`
+  is reassigned afterward (the anti-recursion guarantee), and warns (without throwing)
+  when no fetch is available at all.
+- Manually confirmed via the Vite dev server (curl): POST to `/mini-sentry/collect` and
+  to `/definitely-not-a-real-endpoint` both correctly return `404` (vs. the `200` a GET
+  would get from Vite's SPA fallback), and the served bundle contains the new
+  `sendEvent`/`/mini-sentry/collect` wiring.
+
+**Known limitations:**
+- No retry, batching, or queueing — one event in, one POST out, fire-and-forget. A
+  transport failure is only logged to the console; the event is not re-sent or held for
+  a later retry (beyond still being available in memory via `getCapturedEvents()`).
+  Matches the project's "simplest working implementation" guardrail; revisit only if a
+  real use case needs delivery guarantees.
+- No browser tool was available in this session to click through the demo end-to-end
+  after this change; verification relied on the Vitest suite plus the curl checks
+  above. Please give the buttons a click and check the console shows
+  `[mini-sentry] transport endpoint responded with HTTP 404` alongside each capture.
+- Nothing is received anywhere — `/mini-sentry/collect` has no backend (Phase 7+,
+  explicitly deferred). This phase only proves the SDK's send-side behavior.
+
+**Commit:** _pending_
+
+**Next phase:** Phase 5 — Floating User Notification (Shadow DOM UI, auto-dismiss).

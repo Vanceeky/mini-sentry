@@ -109,6 +109,34 @@ re-litigate them without cause.
   (`installed` flag) rather than tracking/restoring the previous `fetch` — this SDK has
   no `destroy()`/uninstall API yet, so there's nothing to restore to.
 
+## Phase 4
+
+- **Anti-recursion guarantee**: `transport/send.ts` captures its own `fetch` reference
+  at module-load time, before `capture/network.ts`'s `installFetchInterceptor()` has a
+  chance to patch `window.fetch`. This means the transport's own outbound POSTs are
+  never observed by the SDK's own network-error interceptor — a down/misconfigured
+  endpoint produces one console warning per failed send, not an ever-growing chain of
+  `"http"` capture events about its own telemetry failing to send.
+- **No retry/batching/queueing**: one event captured → one fire-and-forget POST. A send
+  failure is only logged; the event isn't held for retry (it remains queryable via the
+  existing in-memory buffer, but nothing re-attempts delivery). Kept intentionally
+  minimal per the project's guardrails; only revisit if delivery guarantees become a
+  real requirement.
+- **`keepalive: true`**: added so a transport request triggered right before/during page
+  unload (a common moment for errors to occur) has a chance to actually complete,
+  matching how most error-tracking SDKs send their final beacon.
+- **No endpoint configured → no-op transport**: unchanged from Phase 1's config
+  design — `endpoint` stays optional; events are still captured and buffered in memory,
+  just never sent, if it's omitted.
+- **Demo's endpoint is intentionally unreachable**: `/mini-sentry/collect` has no
+  backend (that's Phase 7+, explicitly out of scope). The demo exists to prove the
+  send/graceful-failure path, not to stand up a collector.
+- **Fixed a Phase 3 demo bug found during re-verification**: the "Trigger Failed Fetch
+  (404)" button's GET request was answered by Vite dev server's SPA history fallback
+  (200, `index.html`) instead of a real 404, so that capture path was never actually
+  exercised by manual testing. Switched to POST, which Vite correctly 404s for
+  unmatched routes. See Phase 3 entry in `PROGRESS.md`.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief

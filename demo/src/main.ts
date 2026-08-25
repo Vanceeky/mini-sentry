@@ -21,8 +21,15 @@ function refreshCaptureLog() {
           .join("\n");
 }
 
-init({ apiKey: "demo_local_key" });
-setStatus("SDK initialized with a valid API key. Open the console for details.");
+// No backend exists yet (that's Phase 7+), so this endpoint is intentionally
+// unreachable — every captured event's transport POST will fail, demonstrating
+// that a down/misconfigured endpoint only produces a console warning rather
+// than affecting the host app.
+init({ apiKey: "demo_local_key", endpoint: "/mini-sentry/collect" });
+setStatus(
+  "SDK initialized with a valid API key. Open the console for details. " +
+    "(No backend exists yet, so transport sends will fail gracefully — check the console.)",
+);
 
 // Prove that a bad configuration can never crash the host app: this call is
 // intentionally invalid (empty apiKey) and must be a no-op, not a throw.
@@ -44,8 +51,10 @@ document.querySelector<HTMLButtonElement>("#trigger-rejection")?.addEventListene
 });
 
 document.querySelector<HTMLButtonElement>("#trigger-http-error")?.addEventListener("click", () => {
-  // Same-origin request the dev server has no route for, so it comes back 404.
-  fetch("/definitely-not-a-real-endpoint")
+  // POST (not GET) to a same-origin route the dev server has no handler for:
+  // Vite's dev server serves index.html as an SPA fallback for unmatched GET
+  // requests (200 OK), but a POST correctly comes back 404.
+  fetch("/definitely-not-a-real-endpoint", { method: "POST" })
     .catch(() => {
       // Ignored here; the SDK's fetch interceptor already captured it.
     })

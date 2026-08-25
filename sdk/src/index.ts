@@ -7,6 +7,7 @@ import type { MiniSentryConfig } from "./core/config";
 import { generateId } from "./core/id";
 import { info, safeExec, warn } from "./core/safe";
 import { getState, setInitialized } from "./core/state";
+import { sendEvent } from "./transport/send";
 
 export type { MiniSentryConfig } from "./core/config";
 export type { CapturedEvent, CapturedEventType } from "./capture/types";
@@ -34,13 +35,16 @@ export function init(config: MiniSentryConfig): void {
     const onCapture = (event: CapturedEvent): void => {
       recordEvent(event);
       info(`captured ${event.type} event`, event);
+      if (resolved.endpoint) {
+        sendEvent(resolved.endpoint, event);
+      }
     };
     installGlobalErrorListeners(onCapture);
     installFetchInterceptor(onCapture);
   }, "init() failed unexpectedly");
 }
 
-/** Events captured so far. Nothing is transmitted anywhere yet (see Phase 4). */
+/** Events captured so far, whether or not a transport endpoint is configured. */
 export function getCapturedEvents(): readonly CapturedEvent[] {
   return getRecordedEvents();
 }
