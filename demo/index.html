@@ -8,6 +8,13 @@
   <body>
     <h1>Mini Sentry SDK Demo</h1>
     <p id="sdk-status">Checking SDK...</p>
+
+    <button id="trigger-error" type="button">Trigger JS Error</button>
+    <button id="trigger-rejection" type="button">Trigger Unhandled Rejection</button>
+
+    <h2>Captured events</h2>
+    <pre id="capture-log">No events captured yet.</pre>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

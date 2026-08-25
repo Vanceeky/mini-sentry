@@ -20,3 +20,11 @@ export function warn(message: string, error?: unknown): void {
     // Logging itself must never throw into the host application.
   }
 }
+
+export function info(message: string, data?: unknown): void {
+  try {
+    console.info(`${LOG_PREFIX} ${message}`, data);
+  } catch {
+    // Logging itself must never throw into the host application.
+  }
+}

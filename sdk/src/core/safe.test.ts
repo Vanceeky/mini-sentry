@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { safeExec } from "./safe";
+import { info, safeExec } from "./safe";
 
 describe("safeExec", () => {
   it("returns the function's result on success", () => {
@@ -14,5 +14,14 @@ describe("safeExec", () => {
     expect(result).toBeUndefined();
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+describe("info", () => {
+  it("logs via console.info without throwing", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    expect(() => info("hello", { a: 1 })).not.toThrow();
+    expect(infoSpy).toHaveBeenCalled();
+    infoSpy.mockRestore();
   });
 });

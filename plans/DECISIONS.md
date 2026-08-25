@@ -54,6 +54,35 @@ re-litigate them without cause.
 - **Phase 0 placeholder removed**: `isSdkLoaded()` and its test were deleted now that
   a real public API (`init`) exists; the demo was updated to call `init()` instead.
 
+## Phase 2
+
+- **`addEventListener` over `window.onerror`/`window.onunhandledrejection`**: the
+  brief names "window.onerror", but assigning that property is a single global slot
+  that would clobber any handler the host app already set. `window.addEventListener`
+  achieves the same capture without that risk and without suppressing the browser's
+  default console error logging (assigning `window.onerror` and returning `true`
+  would suppress it) — directly serving the "must not alter host app behavior"
+  guardrail.
+- **`environment` field**: fixed to the literal `"browser"` for now — a forward-
+  compatible discriminator (in case a non-browser runtime is ever supported), not a
+  user-configurable "prod/staging" label, since Phase 1's config has no such option
+  and adding one wasn't asked for.
+- **`browser` field**: only `navigator.userAgent`, verbatim. No parsing into name/
+  version — that needs a UA-parsing library or a fragile regex, which is unnecessary
+  complexity for a hackathon MVP; a full user agent string is still useful debugging
+  context on its own.
+- **Where captured events live until Phase 4**: a capped in-memory ring buffer
+  (`capture/store.ts`, max 50) — nothing is sent anywhere yet, per the brief's Phase 2
+  scope. Phase 4's transport will read from this same store.
+- **Test environment**: switched Vitest's default environment from `node` to `jsdom`
+  (as flagged in the Phase 0 decisions) now that capture code touches `window`,
+  `ErrorEvent`, and `PromiseRejectionEvent`.
+- **Listener tests use synthetic dispatched events**, not real uncaught exceptions:
+  constructing `new ErrorEvent(...)` and a manually-tagged `unhandledrejection` Event
+  and dispatching them directly is the standard, deterministic way to unit-test a
+  global listener — waiting for a real uncaught throw to propagate through the test
+  runner's own event loop would be flaky and environment-dependent.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception (Phase 3): only fetch will be intercepted initially; the brief

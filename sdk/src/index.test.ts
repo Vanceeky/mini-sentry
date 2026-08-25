@@ -6,7 +6,7 @@ async function freshInit() {
   vi.resetModules();
   const mod = await import("./index");
   const state = await import("./core/state");
-  return { init: mod.init, getState: state.getState };
+  return { init: mod.init, getState: state.getState, getCapturedEvents: mod.getCapturedEvents };
 }
 
 describe("init", () => {
@@ -56,5 +56,43 @@ describe("init", () => {
     expect(() => init(null as never)).not.toThrow();
     expect(() => init(undefined as never)).not.toThrow();
     expect(() => init("not-an-object" as never)).not.toThrow();
+  });
+
+  it("captures a global error after a successful init and exposes it", async () => {
+    const { init, getCapturedEvents } = await freshInit();
+    init({ apiKey: "project_xxx" });
+
+    window.dispatchEvent(new ErrorEvent("error", { message: "boom", error: new Error("boom") }));
+
+    const events = getCapturedEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("error");
+    expect(events[0].message).toBe("boom");
+  });
+
+  it("captures an unhandled rejection after a successful init and exposes it", async () => {
+    const { init, getCapturedEvents } = await freshInit();
+    init({ apiKey: "project_xxx" });
+
+    const reason = new Error("rejected");
+    const promise = Promise.reject(reason);
+    promise.catch(() => {});
+    const event = new Event("unhandledrejection") as unknown as PromiseRejectionEvent;
+    Object.assign(event, { reason, promise });
+    window.dispatchEvent(event);
+
+    const events = getCapturedEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("unhandledrejection");
+    expect(events[0].message).toBe("rejected");
+  });
+
+  it("does not capture anything when init() was invalid", async () => {
+    const { init, getCapturedEvents } = await freshInit();
+    init({} as never);
+
+    window.dispatchEvent(new ErrorEvent("error", { message: "should be ignored" }));
+
+    expect(getCapturedEvents()).toHaveLength(0);
   });
 });
