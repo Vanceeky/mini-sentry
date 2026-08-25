@@ -386,9 +386,11 @@ auto-dismiss)"
   arbitrary text, since that would need a much heavier heuristic (or ML-based) approach
   with a real false-positive risk; documented as the host app's responsibility to avoid
   putting secrets in thrown error messages.
-- No browser tool was available in this session to visually confirm the redaction
-  behavior in a live page (e.g. by putting a `?token=...` in the demo URL); verification
-  relied on the Vitest suite plus the manual bundle-size/build checks above.
+- **Follow-up 2026-08-25**: user confirmed live in Chrome — navigating to
+  `http://localhost:5173/?token=abc123` and triggering a capture produced a captured
+  event with `url: "http://localhost:5173/?token=%5BRedacted%5D"`; the raw token value
+  never appeared in the captured data. All Phase 6 changes are now confirmed both by
+  the Vitest suite and live in a real browser.
 
 **Commit:** `c949878` — "Phase 6: SDK polish (bundle size review, URL privacy
 scrubbing, defensive copy, README)"
