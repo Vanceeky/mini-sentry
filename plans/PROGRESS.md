@@ -1105,6 +1105,7 @@ events, stats)"
   immediate/unconditional API-key rotation and project deletion, message-
   based (not stack-based) grouping.
 
-**Commit:** _pending_
+**Commit:** `9ff23b1` — "Phase 12: realtime/notification foundation (devices,
+NotificationService)"
 
 **Next phase:** Phase 13 — Backend: API Hardening & Handoff.
