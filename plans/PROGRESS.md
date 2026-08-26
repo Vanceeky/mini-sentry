@@ -984,6 +984,7 @@ API-key rotation)"
   per-project), no rate limiting, no password reset, no multi-session logout,
   immediate/unconditional API-key rotation and project deletion.
 
-**Commit:** _pending_
+**Commit:** `b8d99ec` — "Phase 11: error query / dashboard API (list, detail,
+events, stats)"
 
 **Next phase:** Phase 12 — Backend: Realtime/Notification Foundation.
