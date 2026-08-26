@@ -1232,7 +1232,8 @@ NotificationService)"
   `docs/API.md`'s Known Limitations section (single source of truth from
   here on, rather than repeated per-phase in this file).
 
-**Commit:** _pending_
+**Commit:** `6cec647` — "Phase 13: API hardening & handoff (CORS bug fix,
+rate limiting, docs)"
 
 **Next phase:** none — Phases 0–13 are complete. The SDK MVP (0–6) and the
 full backend (7–13) are both done; see `plans/PROJECT_PLAN.md`'s Definition
