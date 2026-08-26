@@ -12,7 +12,10 @@ const baseEvent: CapturedEventInput = {
   url: "https://example.com/",
 };
 
-async function freshPersistEvent(tx: { errorGroup: { upsert: ReturnType<typeof vi.fn> }; errorEvent: { create: ReturnType<typeof vi.fn> } }) {
+async function freshPersistEvent(tx: {
+  errorGroup: { findUnique: ReturnType<typeof vi.fn>; upsert: ReturnType<typeof vi.fn> };
+  errorEvent: { create: ReturnType<typeof vi.fn> };
+}) {
   vi.resetModules();
   vi.doMock("./db", () => ({
     prisma: { $transaction: vi.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(tx)) },
@@ -20,9 +23,10 @@ async function freshPersistEvent(tx: { errorGroup: { upsert: ReturnType<typeof v
   return import("./persistEvent");
 }
 
-function makeTx(overrides: { group?: object; created?: object } = {}) {
+function makeTx(overrides: { existingGroup?: { lastSeenAt: Date } | null; group?: object; created?: object } = {}) {
   return {
     errorGroup: {
+      findUnique: vi.fn().mockResolvedValue(overrides.existingGroup === undefined ? null : overrides.existingGroup),
       upsert: vi.fn().mockResolvedValue({ id: "grp_1", occurrenceCount: 1, ...overrides.group }),
     },
     errorEvent: {
@@ -67,7 +71,13 @@ describe("persistEvent", () => {
     });
     expect(createArgs.data.timestamp).toEqual(new Date(baseEvent.timestamp));
 
-    expect(result).toEqual({ groupId: "grp_1", eventId: "dbevt_1", occurrenceCount: 1 });
+    expect(result).toEqual({
+      groupId: "grp_1",
+      eventId: "dbevt_1",
+      occurrenceCount: 1,
+      isNewGroup: true,
+      wasInactive: false,
+    });
   });
 
   it("populates method/statusCode from request for http events", async () => {
@@ -102,10 +112,37 @@ describe("persistEvent", () => {
   });
 
   it("returns the post-increment occurrenceCount on a repeat occurrence", async () => {
-    const tx = makeTx({ group: { occurrenceCount: 5 } });
+    const tx = makeTx({ existingGroup: { lastSeenAt: new Date() }, group: { occurrenceCount: 5 } });
     const { persistEvent } = await freshPersistEvent(tx);
 
     const result = await persistEvent("proj_1", baseEvent);
     expect(result.occurrenceCount).toBe(5);
+  });
+
+  it("reports isNewGroup:false, wasInactive:false for a recently-active repeat occurrence", async () => {
+    const tx = makeTx({ existingGroup: { lastSeenAt: new Date() } });
+    const { persistEvent } = await freshPersistEvent(tx);
+
+    const result = await persistEvent("proj_1", baseEvent);
+    expect(result.isNewGroup).toBe(false);
+    expect(result.wasInactive).toBe(false);
+  });
+
+  it("reports wasInactive:true when the group's last occurrence was over 24h ago", async () => {
+    const tx = makeTx({ existingGroup: { lastSeenAt: new Date(Date.now() - 25 * 60 * 60 * 1000) } });
+    const { persistEvent } = await freshPersistEvent(tx);
+
+    const result = await persistEvent("proj_1", baseEvent);
+    expect(result.isNewGroup).toBe(false);
+    expect(result.wasInactive).toBe(true);
+  });
+
+  it("never reports wasInactive:true for a brand-new group", async () => {
+    const tx = makeTx({ existingGroup: null });
+    const { persistEvent } = await freshPersistEvent(tx);
+
+    const result = await persistEvent("proj_1", baseEvent);
+    expect(result.isNewGroup).toBe(true);
+    expect(result.wasInactive).toBe(false);
   });
 });

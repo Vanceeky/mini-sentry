@@ -4,6 +4,7 @@ import { resolveCorsHeaders } from "@/lib/cors";
 import { MAX_EVENT_PAYLOAD_BYTES } from "@/lib/constants";
 import { ApiError, ERRORS, jsonError } from "@/lib/errors";
 import { capturedEventSchema, normalizeEvent } from "@/lib/eventSchema";
+import { notifyIfNeeded } from "@/lib/notify";
 import { persistEvent } from "@/lib/persistEvent";
 
 export async function OPTIONS(request: Request): Promise<NextResponse> {
@@ -57,6 +58,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       occurrenceCount: persisted.occurrenceCount,
       type: event.type,
     });
+
+    // Best-effort: a notification failure must never fail this request —
+    // the event is already durably persisted above.
+    try {
+      await notifyIfNeeded(project, event, persisted);
+    } catch (notifyError) {
+      console.error("notifyIfNeeded failed (event already persisted)", notifyError);
+    }
 
     return NextResponse.json({ success: true, eventId: `evt_${event.id}` }, { status: 200, headers: cors });
   } catch (error) {

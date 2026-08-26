@@ -33,7 +33,7 @@ repository state (not assumed from a prior session).
 | 9 | Backend: Authentication API (register/login/logout/me) | Complete |
 | 10 | Backend: Project Management API (projects, API-key issuance/rotation) | Complete |
 | 11 | Backend: Error Query / Dashboard API (list/detail/stats, used by web dashboard + mobile) | Complete |
-| 12 | Backend: Realtime/Notification foundation (device registration, notification service abstraction) | Not started |
+| 12 | Backend: Realtime/Notification foundation (device registration, notification service abstraction) | Complete |
 | 13 | Backend: API Hardening & Handoff (docs, integration tests, security review) | Not started |
 
 Phase 7 is the first backend phase; the backend is being built for three separate

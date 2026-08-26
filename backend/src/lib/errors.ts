@@ -13,7 +13,8 @@ export type ErrorCode =
   | "INVALID_CREDENTIALS"
   | "INVALID_SESSION"
   | "PROJECT_NOT_FOUND"
-  | "ERROR_GROUP_NOT_FOUND";
+  | "ERROR_GROUP_NOT_FOUND"
+  | "DEVICE_NOT_FOUND";
 
 /**
  * Deliberately-thrown API errors. Anything else caught by the route
@@ -56,6 +57,9 @@ export const ERRORS = {
     new ApiError("PROJECT_NOT_FOUND", 404, "No project with this id exists for the current user."),
   ERROR_GROUP_NOT_FOUND: () =>
     new ApiError("ERROR_GROUP_NOT_FOUND", 404, "No error group with this id exists in this project."),
+  // Same IDOR-safe rationale as PROJECT_NOT_FOUND — identical whether the
+  // device id doesn't exist or belongs to a different user.
+  DEVICE_NOT_FOUND: () => new ApiError("DEVICE_NOT_FOUND", 404, "No device with this id is registered to the current user."),
   invalidEvent: (message: string) => new ApiError("INVALID_EVENT", 400, message),
   validationError: (message: string) => new ApiError("VALIDATION_ERROR", 400, message),
 };

@@ -10,8 +10,8 @@ those frontends need to read backend source code to integrate.
 
 This document currently covers **Phase 7 — Event Ingestion**, **Phase 8 —
 Database & Event Persistence**, **Phase 9 — Authentication**, **Phase 10 —
-Project Management**, and **Phase 11 — Error Query / Dashboard API**. Later
-phases will add Devices and Notifications sections here as they're built.
+Project Management**, **Phase 11 — Error Query / Dashboard API**, and
+**Phase 12 — Realtime / Notification Foundation**.
 
 ## Authentication
 
@@ -57,9 +57,10 @@ cause is logged server-side only.
 | 401 | `INVALID_SESSION` | The bearer token doesn't match any active session (unknown, expired, or already logged out) |
 | 404 | `PROJECT_NOT_FOUND` | (Project-scoped endpoints) No project with this id is owned by the authenticated user — identical whether the id doesn't exist at all or belongs to someone else |
 | 404 | `ERROR_GROUP_NOT_FOUND` | (Error detail only) No error group with this id exists in the (already-confirmed-owned) project |
+| 404 | `DEVICE_NOT_FOUND` | (Device delete only) No device with this id is registered to the authenticated user — identical whether the id doesn't exist or belongs to someone else |
 | 405 | `METHOD_NOT_ALLOWED` | Any HTTP verb other than the endpoint's documented method/`OPTIONS` |
 | 409 | `EMAIL_ALREADY_REGISTERED` | (Register only) An account with this email already exists |
-| 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds the endpoint's size limit (32 KiB for events, 4 KiB for auth/projects) |
+| 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds the endpoint's size limit (32 KiB for events, 4 KiB for auth/projects/devices) |
 | 500 | `INTERNAL_ERROR` | Unexpected server failure — message is always generic |
 
 ## Authentication API
@@ -400,6 +401,94 @@ a database-assigned identifier.
 
 **Error responses:** see the Errors table above; all apply to this endpoint.
 
+**Side effect (Phase 12):** after persisting, this endpoint may trigger a
+push notification to the project owner's registered devices — see
+Notification Foundation below. This is entirely best-effort: a notification
+failure is logged server-side and never affects this endpoint's response: an
+event that persisted successfully always returns `200`, whether or not a
+notification fired.
+
+## Devices API
+
+**Authentication:** every endpoint below requires a **user session token** —
+a device belongs to the developer, not any one project, since one developer
+should hear about all of their projects' errors on the same device.
+
+### `POST /api/v1/devices`
+
+Registers (or re-registers) a push-notification target for the authenticated
+user.
+
+**Request body:** `{ "platform": "ios" | "android", "pushToken": "..." }`
+
+**Success response** — `200 OK`:
+
+```json
+{ "success": true, "device": { "id": "...", "platform": "ios", "createdAt": "..." } }
+```
+
+`pushToken` is globally unique — registering a token that's already
+registered **upserts** onto the existing row (reassigning it to the calling
+user and the given platform) rather than creating a duplicate. This is what
+makes re-registration after an app reinstall (which can re-issue the same
+token) idempotent instead of accumulating stale rows. `200`, not `201`, for
+exactly this reason: this request may not have created anything new.
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+
+### `DELETE /api/v1/devices/:deviceId`
+
+**Success response** — `200 OK`: `{ "success": true }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 DEVICE_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+There's no `GET /api/v1/devices` (list) — the brief asked only for
+register/delete; a list endpoint wasn't asked for and wasn't built. See
+`plans/DECISIONS.md`.
+
+## Notification Foundation
+
+Prepares the backend for mobile push notifications without actually
+integrating a push provider yet — no Expo/Firebase credentials exist in
+this project. The architecture:
+
+```
+SDK -> POST /events -> persist event -> determine notification (if any) -> NotificationService -> (would push to) devices
+```
+
+**`NotificationService`** (`backend/src/lib/notification.ts`) is an
+interface with one method, `notifyUser(userId, payload)`. The only
+implementation today, `ConsoleNotificationService`, looks up the user's
+registered devices and **logs** what would be sent to each — it does not
+call any real push API. Swapping in a real provider later (Expo Push, FCM)
+means writing a new class that implements the same interface and changing
+what `getNotificationService()` returns; nothing in the event-ingestion path
+would need to change.
+
+**Trigger rules** — at most **one** notification per event, never more, and
+most events trigger none:
+
+| Trigger | Condition | Priority |
+|---|---|---|
+| `NEW_ERROR` | The event created a brand-new error group | 1st |
+| `SERIOUS_ERROR` | A repeat `"http"` occurrence with `statusCode >= 500` | 2nd |
+| `REACTIVATED_ERROR` | The group's previous occurrence was over 24h ago | 3rd |
+
+If more than one condition applies to the same event (e.g. a brand-new error
+that's also a 5xx), only the highest-priority trigger fires — a new group is
+always the most novel/actionable signal, so `NEW_ERROR` wins over
+`SERIOUS_ERROR`, which in turn wins over `REACTIVATED_ERROR`. An ordinary
+repeat occurrence of an already-active group triggers nothing.
+
+**Payload** (deep-links a mobile client to the specific error):
+
+```json
+{ "type": "NEW_ERROR", "projectId": "proj_...", "errorGroupId": "grp_...", "title": "New Error Detected", "message": "500 GET /api/users" }
+```
+
+`message` is `"<statusCode> <method> <url>"` for `"http"` events, or the
+event's own `message` otherwise.
+
 ## CORS
 
 Applies to **every** endpoint in this API, not just event ingestion —
@@ -430,7 +519,7 @@ site's origin) is a natural extension for a future phase, now that Phase 10
 provides an authenticated API a dashboard could build that UI on top of —
 not implemented yet, see Known Limitations.
 
-## Known limitations (Phases 7–11)
+## Known limitations (Phases 7–12)
 
 - `os` and `metadata` exist as columns in the database but are always `null`
   — the current SDK contract has no data for either (no user-agent parsing,
@@ -465,5 +554,17 @@ not implemented yet, see Known Limitations.
   search across `stack`/`url`, no full-text index.
 - The SDK's outbound `fetch` doesn't explicitly set `credentials: "omit"` (a
   pre-existing minor discrepancy noted, not introduced, by Phase 7).
+- **Notifications are logged, not delivered** — no real push provider (Expo
+  Push, FCM) is wired up; `ConsoleNotificationService` logs exactly what
+  would be sent. Wiring a real provider is future work behind the same
+  `NotificationService` interface.
+- **No `GET /api/v1/devices`** — only register/delete exist, per the brief;
+  there's no way to list a user's registered devices over the API today
+  (inspect via `npm run db:studio -w backend` or `psql`).
+- **REACTIVATED_ERROR reuses the same 24h window as `activeGroups`** — not
+  independently configurable.
+- **At most one notification per event, chosen by a fixed priority order**
+  (`NEW_ERROR` > `SERIOUS_ERROR` > `REACTIVATED_ERROR`) — not a scoring
+  engine; a single event can never trigger more than one notification.
 
 See `docs/API_EXAMPLES.md` for runnable curl examples and local setup steps.

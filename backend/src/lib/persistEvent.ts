@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { ACTIVE_GROUP_WINDOW_MS } from "./constants";
 import { prisma } from "./db";
 import { computeFingerprint } from "./fingerprint";
 import type { CapturedEventInput } from "./eventSchema";
@@ -7,6 +8,16 @@ export interface PersistedEvent {
   groupId: string;
   eventId: string;
   occurrenceCount: number;
+  /** True when this event created a brand-new ErrorGroup. Drives Phase 12's NEW_ERROR notification trigger. */
+  isNewGroup: boolean;
+  /**
+   * True when the group already existed but hadn't had an occurrence within
+   * ACTIVE_GROUP_WINDOW_MS before this one — i.e. it just went from
+   * "inactive" back to "active." Always false when isNewGroup is true (a
+   * brand-new group was never previously active or inactive). Drives Phase
+   * 12's REACTIVATED_ERROR trigger.
+   */
+  wasInactive: boolean;
 }
 
 /**
@@ -25,6 +36,16 @@ export async function persistEvent(projectId: string, event: CapturedEventInput)
   const timestamp = new Date(event.timestamp);
 
   return prisma.$transaction(async (tx) => {
+    // Read before the upsert so we can tell "new group" / "was this group
+    // inactive" apart from the upsert's own return value, which only ever
+    // reflects the post-write state.
+    const existingGroup = await tx.errorGroup.findUnique({
+      where: { projectId_fingerprint: { projectId, fingerprint } },
+      select: { lastSeenAt: true },
+    });
+    const isNewGroup = !existingGroup;
+    const wasInactive = !!existingGroup && now.getTime() - existingGroup.lastSeenAt.getTime() > ACTIVE_GROUP_WINDOW_MS;
+
     const group = await tx.errorGroup.upsert({
       where: { projectId_fingerprint: { projectId, fingerprint } },
       create: {
@@ -66,6 +87,6 @@ export async function persistEvent(projectId: string, event: CapturedEventInput)
       },
     });
 
-    return { groupId: group.id, eventId: created.id, occurrenceCount: group.occurrenceCount };
+    return { groupId: group.id, eventId: created.id, occurrenceCount: group.occurrenceCount, isNewGroup, wasInactive };
   });
 }

@@ -77,8 +77,14 @@ user 404s, never 403s).
 
 Phase 11 complete: the error query / dashboard API (`GET /api/v1/projects/:id/errors`,
 `.../errors/:groupId`, `.../events`, `.../stats`) — the same endpoints serve both
-the web dashboard and the mobile app, no duplicates. See `plans/PROJECT_PLAN.md` for
-the full phase table and `plans/PROGRESS.md` for what was actually built and tested.
+the web dashboard and the mobile app, no duplicates.
 
-Phases 12–13 (notifications and final hardening) are intentionally out of scope
-until explicitly instructed, one phase at a time — see `plans/PROJECT_PLAN.md`.
+Phase 12 complete: device registration (`POST`/`DELETE /api/v1/devices`) and a
+`NotificationService` abstraction — `POST /api/v1/events` now triggers at most one
+notification per event (new error / serious 5xx / reactivated error), currently
+logged rather than delivered (no real push provider is configured yet). See
+`plans/PROJECT_PLAN.md` for the full phase table and `plans/PROGRESS.md` for what
+was actually built and tested.
+
+Phase 13 (final hardening) is intentionally out of scope until explicitly
+instructed — see `plans/PROJECT_PLAN.md`.

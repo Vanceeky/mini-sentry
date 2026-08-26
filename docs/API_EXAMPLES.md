@@ -284,6 +284,63 @@ curl -s -w "\nstatus: %{http_code}\n" "$BASE_URL/api/v1/projects/$PROJECT_ID/err
 
 Status: `404`.
 
+## Device registration + notifications
+
+```bash
+# Register a device (auth is the USER'S session token):
+DEVICE=$(curl -s -X POST "$BASE_URL/api/v1/devices" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"platform":"ios","pushToken":"expo-push-token-abc123"}')
+echo "$DEVICE"
+DEVICE_ID=$(echo "$DEVICE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["device"]["id"])')
+```
+
+```json
+{ "success": true, "device": { "id": "dev_...", "platform": "ios", "createdAt": "..." } }
+```
+
+```bash
+# Re-registering the same token upserts — same device id back, not a duplicate:
+curl -s -X POST "$BASE_URL/api/v1/devices" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"platform":"ios","pushToken":"expo-push-token-abc123"}'
+```
+
+Now, with a device registered, a brand-new error group triggers a `NEW_ERROR`
+notification — since no real push provider is configured, watch the
+backend's own console output rather than a phone:
+
+```bash
+curl -s -X POST "$BASE_URL/api/v1/events" -H "Authorization: Bearer $PROJECT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"id":"evt_notify_1","type":"error","message":"Totally new bug","url":"https://example.com/","timestamp":"2026-08-26T14:00:00.000Z","environment":"browser","browser":{"userAgent":"test"}}'
+```
+
+Backend console output:
+
+```
+notification (no push provider wired up yet — logging only) {
+  deviceId: 'dev_...',
+  platform: 'ios',
+  type: 'NEW_ERROR',
+  projectId: 'proj_...',
+  errorGroupId: 'grp_...',
+  title: 'New Error Detected',
+  message: 'Totally new bug'
+}
+```
+
+A second, *plain repeat* of the same error (not new, not a 5xx, not
+reactivating) produces **no** notification log line at all:
+
+```bash
+curl -s -X POST "$BASE_URL/api/v1/events" -H "Authorization: Bearer $PROJECT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"id":"evt_notify_2","type":"error","message":"Totally new bug","url":"https://example.com/","timestamp":"2026-08-26T14:00:05.000Z","environment":"browser","browser":{"userAgent":"test"}}'
+```
+
+```bash
+# Delete the device:
+curl -s -X DELETE "$BASE_URL/api/v1/devices/$DEVICE_ID" -H "Authorization: Bearer $TOKEN"
+# {"success":true}
+```
+
 ## Error — missing Authorization header
 
 ```bash

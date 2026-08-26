@@ -510,13 +510,80 @@ re-litigate them without cause.
   endpoints is web-specific (no HTML, no session cookies, plain JSON over
   bearer auth) — there was no reason mobile would need anything different.
 
+## Phase 12
+
+- **`ConsoleNotificationService` logs instead of delivering**: this project
+  has no Expo Push or Firebase Cloud Messaging credentials configured, and
+  the brief's own scope for this phase is "prepare the backend for mobile
+  notifications" — not "integrate a real push provider." Logging exactly
+  what *would* be sent, to which device, honors the "no fake functionality
+  presented as working" guardrail: it doesn't pretend delivery succeeded, it
+  doesn't silently no-op, and it's fully swappable later — a real provider
+  is a new class implementing the same `NotificationService` interface, with
+  `getNotificationService()` as the one place that changes.
+- **A device belongs to a user, not a project**: the brief's own device
+  registration example associates a device with "the authenticated
+  developer," and semantically a developer should hear about errors across
+  *all* their projects on the same phone, not re-register per project.
+- **`pushToken` is unique; registration upserts, not always-creates**: an app
+  reinstall commonly re-issues the same underlying push token, and a device
+  can change hands to a different account. Upserting on the token means
+  re-registration is idempotent (no accumulating duplicate rows for the same
+  physical device) and correctly reassigns ownership if a different user
+  registers a token another user previously owned. `POST /api/v1/devices`
+  returns `200`, not `201`, because of this — the request might not have
+  created anything new.
+- **No `GET /api/v1/devices`**: the brief listed only `POST` and `DELETE` for
+  this phase. Following the precedent set in Phase 10's decision to skip a
+  standalone `POST .../api-key` endpoint, a list endpoint that wasn't asked
+  for isn't added just because it would be convenient — it can be added in
+  Phase 13 (hardening/handoff) or later if a real consumer needs it.
+- **At most one notification per event, chosen by a fixed priority order
+  (`NEW_ERROR` > `SERIOUS_ERROR` > `REACTIVATED_ERROR`)**: the brief
+  explicitly warns against sending a notification for every event and
+  against building "a complex alerting engine." A simple, documented
+  priority order — rather than, say, a configurable scoring/weighting system
+  — satisfies "keep the MVP simple" directly. New-group is ranked highest
+  because it's the most novel/actionable signal a developer can get; a
+  serious repeat failure outranks a mere reactivation because active 5xx
+  errors are more urgent than "this got quiet-then-loud again."
+- **`wasInactive` reuses `ACTIVE_GROUP_WINDOW_MS` (24h), the same constant
+  Phase 11 defined for `activeGroups`**: "previously inactive" and "not
+  currently active" are the same underlying concept — introducing a second,
+  differently-tuned window for notifications specifically would be an
+  unexplained inconsistency between two closely related features, not a
+  deliberate design choice.
+- **`persistEvent()` reads the existing group before upserting it**: the
+  upsert's own return value only ever reflects the *post-write* state, so
+  "was this a new group" / "was it inactive before this write" can't be
+  recovered from it after the fact — an explicit `findUnique` first, inside
+  the same transaction, is the only way to know the *prior* state
+  authoritatively.
+- **Notification failures are caught at the route, not inside
+  `notifyIfNeeded()` itself**: `notifyIfNeeded()` lets errors propagate
+  (keeping it simple/testable — a caller can assert on failures directly),
+  while `events/route.ts` wraps the call in `try/catch` after `persistEvent`
+  has already committed. This keeps the "is notification best-effort"
+  *policy* decision at the one call site that actually needs to make it,
+  rather than baking "swallow errors" into the library function itself
+  (which would make failures invisible to anything else that might call it
+  differently in the future, e.g. a batch reprocessing job).
+- **`AuthenticatedProject` gained `ownerId`**: the events route needs to know
+  who owns the project it just persisted an event for, to know who to
+  notify — extending the existing `findProjectByApiKey()` select was simpler
+  than a second query, and `ownerId` was already a real (if sometimes null)
+  column on `Project` since Phase 10.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
   explicitly allows deferring XHR if it adds substantial complexity. Revisit if a real
   host app needs it.
-- Notifications and final hardening (Phases 12–13): explicitly out of scope
-  until instructed, one phase at a time.
+- Final hardening (Phase 13): explicitly out of scope until instructed.
+- Real push provider integration (Expo Push, FCM): the `NotificationService`
+  interface exists (Phase 12); no concrete provider is wired up.
+- `GET /api/v1/devices` (list a user's registered devices): not asked for in
+  Phase 12's brief, deferred until a real consumer needs it.
 - Full-text/fuzzy search on error messages, or search across `stack`/`url`:
   today's `search` is a plain case-insensitive substring match on `message`
   only (Phase 11). Revisit if that stops being enough at real data scale.

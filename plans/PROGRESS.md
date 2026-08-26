@@ -988,3 +988,123 @@ API-key rotation)"
 events, stats)"
 
 **Next phase:** Phase 12 — Backend: Realtime/Notification Foundation.
+
+## Phase 12 — Backend: Realtime/Notification Foundation
+
+**Status:** Complete
+
+**What was built:**
+- `Device` model (`id`, `userId` FK cascade, `platform`, `pushToken` unique,
+  timestamps). Migration `20260826041440_add_devices`. A device belongs to a
+  **user**, not a project — one developer's device should hear about all of
+  their projects' errors on the same device.
+- `POST /api/v1/devices` — registers a device; upserts by `pushToken` (an
+  app-reinstall-issued token re-registering, or a device changing hands,
+  reassigns the existing row rather than duplicating it). `200`, not `201`,
+  since the request may not have created anything new.
+- `DELETE /api/v1/devices/:deviceId` — same IDOR-safe `{id, userId}` query
+  scoping and `404 DEVICE_NOT_FOUND` (new error code) pattern as every other
+  owned-resource endpoint in this API. **No `GET /devices` (list)** — the
+  brief only asked for register/delete; a list endpoint wasn't built (see
+  Decisions).
+- `backend/src/lib/notification.ts` — `NotificationService` interface
+  (`notifyUser(userId, payload)`) + `ConsoleNotificationService`, the only
+  implementation: looks up the user's devices and **logs** what would be
+  sent to each (no real push provider — no Expo/FCM credentials exist in
+  this project). `getNotificationService()` is the single factory call sites
+  depend on, so swapping in a real provider later is a one-function change.
+- `backend/src/lib/notificationRules.ts` — `determineNotificationType()`
+  (at most one of `NEW_ERROR`/`SERIOUS_ERROR`/`REACTIVATED_ERROR` per event,
+  by fixed priority — never more than one notification per event) and
+  `buildNotificationPayload()` (deep-link payload matching the brief's exact
+  shape, `message` formatted as `"<statusCode> <method> <url>"` for `"http"`
+  events).
+- `backend/src/lib/notify.ts` — `notifyIfNeeded(project, event, persisted)`
+  orchestrates the above; no-ops when `project.ownerId` is null (nothing to
+  notify). Called from `events/route.ts` **after** `persistEvent()` commits,
+  wrapped in its own `try/catch` so a notification failure can never affect
+  whether the triggering request succeeds — the event is already durably
+  persisted by that point.
+- `backend/src/lib/persistEvent.ts` extended: reads the existing group (if
+  any) *before* upserting, so it can report `isNewGroup`/`wasInactive`
+  (`wasInactive` = the group's previous `lastSeenAt` was more than
+  `ACTIVE_GROUP_WINDOW_MS` — the same 24h constant Phase 11 already defined
+  for `activeGroups` — before this occurrence) alongside the existing
+  `groupId`/`eventId`/`occurrenceCount`.
+- `backend/src/lib/apiKey.ts`'s `AuthenticatedProject`/`findProjectByApiKey`
+  extended to include `ownerId` — needed so the events route knows *who* to
+  notify without a second DB round trip.
+- `docs/API.md` gained a full Devices API section and a Notification
+  Foundation section (architecture diagram, trigger-rule table, payload
+  shape, the "logged not delivered" caveat). `docs/API_EXAMPLES.md` gained a
+  device registration + live notification walkthrough.
+
+**Tests performed:**
+- `npm run typecheck` / `npm run build` — clean across all three workspaces;
+  `next build` lists both new device routes alongside the existing 13.
+- `find sdk/dist -iname '*.test.*'` / `find backend/.next -iname '*.test.*'` — both empty.
+- `npm run test` (no `DATABASE_URL`): backend now 243 passed + 15 skipped
+  across 35 files. New: `deviceSchema.test.ts`, `device.test.ts` (upsert
+  semantics, `{id,userId}`-scoped delete), `notification.test.ts`
+  (singleton behavior, per-device logging, no-devices case — all via a
+  mocked Prisma), `notificationRules.test.ts` (every priority-ordering case:
+  new-beats-serious, serious-beats-reactivated, no-trigger case, message
+  formatting for http vs. non-http), `notify.test.ts` (no-owner no-ops,
+  no-trigger no-ops, correct payload on a real trigger, and that a
+  notification-service failure propagates rather than being silently
+  swallowed *inside* `notifyIfNeeded` — swallowing happens one layer up, at
+  the route, which is the layer that decides "best-effort"). Extended
+  `persistEvent.test.ts` (5 new cases for `isNewGroup`/`wasInactive` across
+  new/repeat/stale-repeat groups) and `events/route.test.ts` (asserts
+  `notifyIfNeeded` is called with the right arguments after a successful
+  persist, and that the route still returns `200` even when it rejects).
+- **With `DATABASE_URL` set**: 264 passed, 0 skipped — a new
+  `devices/flow.integration.test.ts` drives the real route handlers through
+  the entire chain against real Postgres: register a device, ingest a
+  brand-new error (asserts a real `console.log` call with
+  `type: "NEW_ERROR"`), ingest a plain repeat (asserts **no** such log
+  call), ingest a new 5xx `"http"` error then a repeat of it (asserts
+  `SERIOUS_ERROR` fires only on the repeat, not the new-group occurrence —
+  proving the priority ordering against real persisted state, not just unit
+  logic), force a group's `lastSeenAt` 25h stale via a direct Prisma update
+  and re-ingest (asserts `REACTIVATED_ERROR`), then registers/deletes a
+  device and confirms a second real user gets `404` attempting to delete the
+  first user's device.
+- **Live end-to-end verification** against a running backend + Postgres:
+  registered a device via curl, confirmed re-registering the same token
+  upserts to the same device id, confirmed an invalid platform is rejected.
+  Ingested a sequence of real events via curl and read the backend's actual
+  console output: a new error produced exactly one `NEW_ERROR` log line, its
+  plain repeat produced **zero** notification lines, a new 5xx `"http"`
+  error produced `NEW_ERROR` (priority) while its repeat produced
+  `SERIOUS_ERROR` with `message: "500 POST /api/checkout"` (matching the
+  brief's exact payload format), and forcing a group stale via `psql` then
+  re-ingesting produced `REACTIVATED_ERROR`. Confirmed device deletion IDOR
+  protection with a second real registered user (`404` for a stranger,
+  `200` for the owner, `404` again on a second delete of an already-gone
+  device). Cleaned up test projects/devices/users and tore down the dev
+  server/Postgres container afterward.
+
+**Known limitations:**
+- **Notifications are logged, not delivered** — this was explicit in the
+  brief's own scope ("prepare the backend," not "integrate a real
+  provider"). `ConsoleNotificationService` is the only implementation;
+  wiring Expo Push or FCM is future work behind the same interface.
+- **No `GET /api/v1/devices`** — only register/delete exist. Not asked for;
+  building it anyway would be exactly the "don't blindly implement every
+  endpoint" anti-pattern this project has been avoiding since Phase 10.
+- **At most one notification per event, fixed priority order** — not a
+  scoring/weighting engine, per the brief's own explicit "do not build a
+  complex alerting engine" instruction.
+- **`REACTIVATED_ERROR`'s window is the same fixed 24h constant as Phase
+  11's `activeGroups`**, not independently configurable.
+- **No browser tool was available in this session** (same as Phases 7–11) —
+  live verification used curl end-to-end.
+- Same carry-over limitations as Phases 7–11: CORS is global (not
+  per-project), no rate limiting, no password reset, no multi-session logout,
+  immediate/unconditional API-key rotation and project deletion, message-
+  based (not stack-based) grouping.
+
+**Commit:** _pending_
+
+**Next phase:** Phase 13 — Backend: API Hardening & Handoff.

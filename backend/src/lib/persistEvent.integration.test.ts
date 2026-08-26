@@ -61,6 +61,9 @@ describe.skipIf(!process.env.DATABASE_URL)("persistEvent (real DB)", () => {
 
     expect(second.groupId).toBe(first.groupId);
     expect(second.occurrenceCount).toBe(2);
+    expect(first.isNewGroup).toBe(true);
+    expect(second.isNewGroup).toBe(false);
+    expect(second.wasInactive).toBe(false);
 
     const eventCount = await prisma.errorEvent.count({ where: { groupId: first.groupId } });
     expect(eventCount).toBe(2);

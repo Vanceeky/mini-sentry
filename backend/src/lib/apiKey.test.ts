@@ -19,9 +19,9 @@ describe("hashApiKey", () => {
 });
 
 describe("findProjectByApiKey", () => {
-  it("looks up a project by the hashed key and returns id/name only", async () => {
+  it("looks up a project by the hashed key and returns id/name/ownerId", async () => {
     vi.resetModules();
-    const findUnique = vi.fn().mockResolvedValue({ id: "proj_1", name: "Test Project" });
+    const findUnique = vi.fn().mockResolvedValue({ id: "proj_1", name: "Test Project", ownerId: "user_1" });
     vi.doMock("./db", () => ({ prisma: { project: { findUnique } } }));
 
     const { findProjectByApiKey, hashApiKey: hash } = await import("./apiKey");
@@ -29,9 +29,9 @@ describe("findProjectByApiKey", () => {
 
     expect(findUnique).toHaveBeenCalledWith({
       where: { apiKeyHash: hash("mnst_test_123") },
-      select: { id: true, name: true },
+      select: { id: true, name: true, ownerId: true },
     });
-    expect(project).toEqual({ id: "proj_1", name: "Test Project" });
+    expect(project).toEqual({ id: "proj_1", name: "Test Project", ownerId: "user_1" });
 
     vi.doUnmock("./db");
   });

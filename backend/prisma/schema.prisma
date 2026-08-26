@@ -114,8 +114,28 @@ model User {
 
   sessions Session[]
   projects Project[]
+  devices  Device[]
 
   @@map("users")
+}
+
+// A registered push-notification target (Phase 12) — associated with the
+// authenticated developer, not a project, since one developer's devices
+// should hear about all of their projects' errors. `pushToken` is unique:
+// re-registering the same token (e.g. after an app reinstall re-issues the
+// same token, or a device changes hands) upserts onto the existing row
+// rather than creating a duplicate — see lib/device.ts.
+model Device {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform  String
+  pushToken String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("devices")
 }
 
 // One row per active login. tokenHash is unsalted SHA-256 of a random

@@ -35,6 +35,12 @@ export const MAX_PAGE_LIMIT = 100;
 /**
  * A group counts as "active" for stats purposes if it's had an occurrence
  * within this window. An arbitrary but documented definition — not derived
- * from the brief, which didn't define "active" — see DECISIONS.md.
+ * from the brief, which didn't define "active" — see DECISIONS.md. Reused
+ * by Phase 12's REACTIVATED_ERROR trigger: the same window that makes a
+ * group "active" for stats also defines what counts as "was inactive."
  */
 export const ACTIVE_GROUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Device registration endpoints — bodies are tiny (platform + token). */
+export const MAX_DEVICE_PAYLOAD_BYTES = 4 * 1024; // 4 KiB
+export const PUSH_TOKEN_MAX_LEN = 4096; // generous — real tokens are ~40-200 chars

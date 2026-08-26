@@ -22,11 +22,12 @@ This project is built one phase at a time against `plans/PROJECT_PLAN.md`.
 Read these before assuming what exists — check `plans/PROGRESS.md`'s latest phase
 before recommending or building on something that "should" be there.
 
-Phases 7–11 (event ingestion API, full DB persistence/error grouping,
-authentication, project/API-key management, error-query/dashboard API) are complete.
-Phases 12–13 (notifications, final hardening) are **explicitly out of scope** until
-the user asks for them — don't start scaffolding for them proactively. Never build
-dashboard/mobile/landing UI in this repo — backend/API only.
+Phases 7–12 (event ingestion API, full DB persistence/error grouping,
+authentication, project/API-key management, error-query/dashboard API,
+realtime/notification foundation) are complete. Phase 13 (final hardening) is
+**explicitly out of scope** until the user asks for it — don't start scaffolding
+for it proactively. Never build dashboard/mobile/landing UI in this repo —
+backend/API only.
 
 ## Commands (run from repo root; workspaces: `sdk`, `demo`, `backend`)
 
@@ -121,6 +122,18 @@ dashboard/mobile/landing UI in this repo — backend/API only.
   `400 VALIDATION_ERROR` on failure, matching the request-body validation pattern
   used elsewhere. Reuse it for any new list/filter endpoint instead of hand-rolling
   the parse-and-check-issues block again.
+- **Provider abstractions get a real (not fake) placeholder implementation**:
+  `lib/notification.ts`'s `NotificationService` interface + `getNotificationService()`
+  factory is the pattern for "prepare for X without integrating X yet" — write the
+  interface, write one concrete implementation that's honest about what it actually
+  does (here: logs instead of delivering), and route all call sites through the
+  factory so swapping in a real implementation later touches one function, not
+  every call site.
+- **Best-effort side effects are caught at the call site, not inside the library
+  function**: `notify.ts`'s `notifyIfNeeded()` lets errors propagate; `events/route.ts`
+  wraps the call in its own `try/catch` *after* the critical write (`persistEvent`)
+  has already committed. Don't bake "swallow errors" into a library function itself —
+  decide that at the one call site that actually needs the best-effort policy.
 - **`agentRules: false`** is set in `backend/next.config.mjs` — Next.js 16 otherwise
   auto-generates its own `AGENTS.md`/`CLAUDE.md` inside `backend/` on every dev/build
   run, which would collide confusingly with this repo's own hand-authored root

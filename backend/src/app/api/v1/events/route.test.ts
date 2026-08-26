@@ -11,11 +11,12 @@ const sampleEvent = {
   url: "https://example.com/",
 };
 
-const defaultPersisted = { groupId: "grp_1", eventId: "dbevt_1", occurrenceCount: 1 };
+const defaultPersisted = { groupId: "grp_1", eventId: "dbevt_1", occurrenceCount: 1, isNewGroup: false, wasInactive: false };
 
 async function freshRoute(
   project: AuthenticatedProject | null,
   persistEventMock: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(defaultPersisted),
+  notifyIfNeededMock: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(undefined),
 ) {
   vi.resetModules();
   vi.doMock("@/lib/apiKey", async () => {
@@ -26,6 +27,7 @@ async function freshRoute(
     };
   });
   vi.doMock("@/lib/persistEvent", () => ({ persistEvent: persistEventMock }));
+  vi.doMock("@/lib/notify", () => ({ notifyIfNeeded: notifyIfNeededMock }));
   return import("./route");
 }
 
@@ -54,6 +56,7 @@ describe("POST /api/v1/events", () => {
     vi.restoreAllMocks();
     vi.doUnmock("@/lib/apiKey");
     vi.doUnmock("@/lib/persistEvent");
+    vi.doUnmock("@/lib/notify");
   });
 
   it("returns 401 UNAUTHORIZED when the Authorization header is missing", async () => {
@@ -78,7 +81,7 @@ describe("POST /api/v1/events", () => {
   });
 
   it("returns 413 PAYLOAD_TOO_LARGE for an oversized body", async () => {
-    const { POST } = await freshRoute({ id: "proj_1", name: "Test" });
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
     const raw = JSON.stringify({ ...sampleEvent, message: "x".repeat(40 * 1024) });
     const response = await POST(postRequest(null, { auth: "Bearer key", raw }));
     expect(response.status).toBe(413);
@@ -86,14 +89,14 @@ describe("POST /api/v1/events", () => {
   });
 
   it("returns 400 INVALID_EVENT for malformed JSON", async () => {
-    const { POST } = await freshRoute({ id: "proj_1", name: "Test" });
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
     const response = await POST(postRequest(null, { auth: "Bearer key", raw: "{not json" }));
     expect(response.status).toBe(400);
     expect((await response.json()) as unknown).toMatchObject({ error: { code: "INVALID_EVENT" } });
   });
 
   it("returns 400 INVALID_EVENT when a required field is missing", async () => {
-    const { POST } = await freshRoute({ id: "proj_1", name: "Test" });
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
     const { message: _drop, ...withoutMessage } = sampleEvent;
     const response = await POST(postRequest(withoutMessage, { auth: "Bearer key" }));
     expect(response.status).toBe(400);
@@ -101,14 +104,14 @@ describe("POST /api/v1/events", () => {
   });
 
   it("returns 400 INVALID_EVENT when type is 'http' but request is missing", async () => {
-    const { POST } = await freshRoute({ id: "proj_1", name: "Test" });
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
     const response = await POST(postRequest({ ...sampleEvent, type: "http" }, { auth: "Bearer key" }));
     expect(response.status).toBe(400);
     expect((await response.json()) as unknown).toMatchObject({ error: { code: "INVALID_EVENT" } });
   });
 
   it("returns 200 with {success:true, eventId} for a valid event and known key", async () => {
-    const { POST } = await freshRoute({ id: "proj_1", name: "Test" });
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
     const response = await POST(postRequest(sampleEvent, { auth: "Bearer good-key" }));
     expect(response.status).toBe(200);
     // eventId is still the client-supplied id, echoed — not the DB row id —
@@ -118,7 +121,7 @@ describe("POST /api/v1/events", () => {
 
   it("calls persistEvent with the project id and normalized event on success", async () => {
     const persistEventMock = vi.fn().mockResolvedValue(defaultPersisted);
-    const { POST } = await freshRoute({ id: "proj_1", name: "Test" }, persistEventMock);
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null }, persistEventMock);
     await POST(postRequest(sampleEvent, { auth: "Bearer good-key" }));
 
     expect(persistEventMock).toHaveBeenCalledTimes(1);
@@ -129,7 +132,7 @@ describe("POST /api/v1/events", () => {
 
   it("returns 500 INTERNAL_ERROR (never leaking the underlying error) when persistence fails", async () => {
     const persistEventMock = vi.fn().mockRejectedValue(new Error("connection refused: password=hunter2"));
-    const { POST } = await freshRoute({ id: "proj_1", name: "Test" }, persistEventMock);
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null }, persistEventMock);
     const response = await POST(postRequest(sampleEvent, { auth: "Bearer good-key" }));
 
     expect(response.status).toBe(500);
@@ -140,13 +143,37 @@ describe("POST /api/v1/events", () => {
   });
 
   it("attaches CORS headers for an allowed origin", async () => {
-    const { POST } = await freshRoute({ id: "proj_1", name: "Test" });
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
     const response = await POST(postRequest(sampleEvent, { auth: "Bearer good-key", origin: "http://localhost:5173" }));
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
   });
 
+  it("calls notifyIfNeeded with the project, event, and persisted result after a successful persist", async () => {
+    const notifyIfNeededMock = vi.fn().mockResolvedValue(undefined);
+    const project = { id: "proj_1", name: "Test", ownerId: "user_1" };
+    const { POST } = await freshRoute(project, undefined, notifyIfNeededMock);
+
+    await POST(postRequest(sampleEvent, { auth: "Bearer good-key" }));
+
+    expect(notifyIfNeededMock).toHaveBeenCalledTimes(1);
+    const [notifiedProject, notifiedEvent, notifiedPersisted] = notifyIfNeededMock.mock.calls[0];
+    expect(notifiedProject).toEqual(project);
+    expect(notifiedEvent).toMatchObject({ id: "abc-123", type: "error" });
+    expect(notifiedPersisted).toEqual(defaultPersisted);
+  });
+
+  it("still returns 200 (event already persisted) even when notifyIfNeeded throws", async () => {
+    const notifyIfNeededMock = vi.fn().mockRejectedValue(new Error("push provider down"));
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: "user_1" }, undefined, notifyIfNeededMock);
+
+    const response = await POST(postRequest(sampleEvent, { auth: "Bearer good-key" }));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as unknown).toEqual({ success: true, eventId: "evt_abc-123" });
+  });
+
   it("omits CORS headers for a disallowed origin", async () => {
-    const { POST } = await freshRoute({ id: "proj_1", name: "Test" });
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
     const response = await POST(postRequest(sampleEvent, { auth: "Bearer good-key", origin: "https://evil.example.com" }));
     expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
