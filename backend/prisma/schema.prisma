@@ -9,16 +9,28 @@ datasource db {
 
 // Phase 7 fields kept additive-only, per that phase's note — the seed data /
 // dev API key / existing tests all depend on this exact shape.
+//
+// ownerId is nullable (not required) deliberately: the Phase 7 seed project
+// predates the concept of ownership (User didn't exist until Phase 9), and
+// backfilling a NOT NULL constraint onto existing rows is a real-data-risk
+// migration this project has no reason to take on for a dev fixture. Every
+// project created through POST /api/v1/projects (Phase 10) always sets it —
+// see lib/project.ts. apiKeyLastFour is nullable for the same reason (it
+// didn't exist before Phase 10); it's set on every create/rotate from here on.
 model Project {
-  id         String   @id @default(cuid())
-  name       String
-  apiKeyHash String   @unique
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id             String   @id @default(cuid())
+  name           String
+  apiKeyHash     String   @unique
+  apiKeyLastFour String?
+  ownerId        String?
+  owner          User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   errorGroups ErrorGroup[]
   errorEvents ErrorEvent[]
 
+  @@index([ownerId])
   @@map("projects")
 }
 
@@ -91,6 +103,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   sessions Session[]
+  projects Project[]
 
   @@map("users")
 }

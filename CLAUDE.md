@@ -22,11 +22,12 @@ This project is built one phase at a time against `plans/PROJECT_PLAN.md`.
 Read these before assuming what exists — check `plans/PROGRESS.md`'s latest phase
 before recommending or building on something that "should" be there.
 
-Phases 7–9 (event ingestion API, full DB persistence/error grouping, authentication)
-are complete. Phases 10–13 (project/API-key management, the error-query/dashboard
-API, notifications, final hardening) are **explicitly out of scope** until the user
-asks for them — don't start scaffolding for them proactively. Never build dashboard/
-mobile/landing UI in this repo — backend/API only.
+Phases 7–10 (event ingestion API, full DB persistence/error grouping,
+authentication, project/API-key management) are complete. Phases 11–13
+(error-query/dashboard API, notifications, final hardening) are **explicitly out of
+scope** until the user asks for them — don't start scaffolding for them
+proactively. Never build dashboard/mobile/landing UI in this repo — backend/API
+only.
 
 ## Commands (run from repo root; workspaces: `sdk`, `demo`, `backend`)
 
@@ -96,6 +97,19 @@ mobile/landing UI in this repo — backend/API only.
   keep endpoint-family-specific error codes distinct rather than reusing one across
   unrelated concerns. `INVALID_CREDENTIALS` (login) and `INVALID_SESSION`
   (unknown/expired token) are also distinct from `INVALID_API_KEY`.
+- **Ownership-scoped queries, not fetch-then-check**: every project lookup/mutation
+  in `lib/project.ts` filters `where: { id, ownerId }` in the query itself
+  (`findFirst`/`updateMany`/`deleteMany`), never "fetch by id, then compare owner in
+  JS" — the latter is one accidental refactor away from an IDOR bug. Follow this
+  pattern for any future user-owned resource. Also: return `404`, never `403`, for a
+  resource that exists but isn't the caller's — `403` leaks that the id is real.
+- **Test gotcha**: an `ApiError` built from a module imported before a test's
+  `vi.resetModules()` fails `instanceof ApiError` inside code imported after that
+  reset (different module-registry epoch, different class identity) — silently
+  turns an intended `401` test into a passing-looking `500`. When a mocked function
+  needs to reject with a typed error class, import that class fresh *inside* the
+  post-reset setup, not at the test file's top level. See `projects/route.test.ts`'s
+  `freshRoute()` for the pattern.
 - **`agentRules: false`** is set in `backend/next.config.mjs` — Next.js 16 otherwise
   auto-generates its own `AGENTS.md`/`CLAUDE.md` inside `backend/` on every dev/build
   run, which would collide confusingly with this repo's own hand-authored root

@@ -392,19 +392,83 @@ re-litigate them without cause.
   argument, so `events/route.ts` didn't need to change at all — purely
   additive.
 
+## Phase 10
+
+- **`Project.ownerId`/`apiKeyLastFour` are nullable, not required**: the
+  Phase 7 seed project predates `User` (which didn't exist until Phase 9).
+  Adding a NOT NULL `ownerId` to an existing table with existing rows would
+  require either an interactive `prisma migrate dev` data-loss prompt (not
+  viable in a non-interactive session) or a hand-written backfill migration —
+  real complexity for zero benefit on what's just a dev fixture. Nullable at
+  the schema level costs nothing in practice: every query that matters
+  filters `WHERE ownerId = <user>`, and SQL's `= NULL` never matches, so a
+  null-owner row is simply invisible through every Phase 10 endpoint —
+  exactly the right behavior for a system fixture that isn't "owned" by
+  anyone. `createProject()` always sets both fields; only pre-Phase-10 rows
+  can ever be null.
+- **Ownership scoping happens in the query itself, not "fetch then compare in
+  JS"**: every read/write in `lib/project.ts` filters
+  `where: { id: projectId, ownerId }` directly — `findFirst`/`updateMany`/
+  `deleteMany` all return nothing for a project that exists but belongs to
+  someone else, identically to one that doesn't exist. This is the actual
+  IDOR defense the brief asked for ("never allow User A -> Project B through
+  a manipulated project ID"), not just an application-level `if` a future
+  refactor could accidentally drop.
+- **`404 PROJECT_NOT_FOUND`, never `403 Forbidden`, for another user's
+  project**: a `403` would itself leak information — it confirms the id
+  refers to a *real* project, just not one the caller owns, letting an
+  attacker enumerate valid project ids by status code alone. `404` is
+  identical whether the id is real-but-not-yours or entirely made up.
+  Verified live with two real accounts (see PROGRESS.md).
+- **Only `POST .../api-key/rotate`, no standalone `POST .../api-key`**: the
+  brief listed both as conditional ("if required by the existing
+  architecture"). Since `POST /api/v1/projects` already issues a key
+  atomically at creation, a project is never in a state of "exists but has no
+  key" — there's no scenario a separate creation endpoint would actually
+  serve. Building it anyway would be exactly the kind of endpoint the brief's
+  own "do not blindly implement every endpoint" guidance warns against.
+- **Key rotation is immediate and unconditional, no grace period**: the new
+  key is generated, the old one's hash is overwritten in the same
+  `updateMany`, and the response returns immediately — there's no window
+  where both keys validate. Simpler than a dual-key/grace-period design, and
+  matches the brief's "boring, predictable" mandate; a live deployment
+  mid-rotation will see a hard cutover, documented as a known limitation
+  rather than silently glossed over.
+- **`PATCH` only edits `name`**: the brief's own example only showed renaming
+  (`{"name": "My Application"}`); no other mutable field exists on `Project`
+  yet, so `updateProjectSchema` intentionally has exactly one field rather
+  than a speculative partial-update shape for fields that don't exist.
+- **Real test-authoring bug found and fixed**: an `ApiError` built from a
+  module imported *before* a test's `vi.resetModules()` call fails
+  `instanceof ApiError` inside code imported *after* that reset — different
+  reset epochs mean different class object identities for what looks like
+  "the same" TypeScript type. Silently downgrades an intended `401` test to
+  an actual `500` response, which the test would still (wrongly) need to
+  assert against to catch — easy to miss. Fixed across all three new route
+  test files by dynamically re-importing `@/lib/errors` *inside* the
+  post-reset `freshRoute()` helper. Worth remembering for any future test
+  that mocks a rejection with a typed error class alongside
+  `vi.resetModules()`.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
   explicitly allows deferring XHR if it adds substantial complexity. Revisit if a real
   host app needs it.
 - An API to read back persisted events/groups (Errors query/Dashboard API),
-  project/API-key management, notifications, and final hardening
-  (Phases 10–13): explicitly out of scope until instructed, one phase at a time.
+  notifications, and final hardening (Phases 11–13): explicitly out of scope
+  until instructed, one phase at a time.
 - Password reset: explicitly optional per the brief; deferred since this
   backend has no email/SMS delivery mechanism to build it safely (see Phase 9).
 - "Log out everywhere" / multi-session management: only single-token logout
   exists; deferred until a real multi-device use case asks for it.
-- Per-project CORS origin allowlisting: deferred to Phase 10 (see Phase 7 above).
+- Per-project CORS origin allowlisting: Phase 10 built the authenticated API a
+  dashboard could build this on top of, but the origin-management UI/endpoint
+  itself wasn't asked for and remains deferred.
+- Key-rotation grace period (both old and new key valid briefly): deferred —
+  rotation is immediate/unconditional today, see Phase 10 above.
+- Pagination on `GET /api/v1/projects`: deferred until a developer's project
+  count realistically needs it.
 - Rate limiting on `/api/v1/events`: deferred to Phase 13 (hardening).
 - Stack-frame-based (rather than message-based) error grouping: not attempted — the
   SDK doesn't capture structured frames, and adding that is a bigger change to the

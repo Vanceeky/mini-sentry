@@ -13,16 +13,17 @@ docker compose -f backend/docker-compose.yml up -d
 cp backend/.env.example backend/.env
 npm run db:migrate -w backend
 
-# 3. Seed a dev project + print its API key
+# 3. Seed a dev user + a dev project (owned by that user) + print both
 npm run db:seed -w backend
+# -> Dev login: dev@example.com / mini-sentry-dev-password
 # -> Dev API key: mnst_dev_local_0000000000000000000000000000
 
 # 4. Start the backend
 npm run dev:backend
 ```
 
-The examples below use the seeded dev key. It's a fixed, well-known,
-local-only value — not a secret.
+The examples below use the seeded dev key/login. They're fixed, well-known,
+local-only values — not secrets.
 
 ```bash
 export API_KEY="mnst_dev_local_0000000000000000000000000000"
@@ -96,6 +97,61 @@ curl -s -X POST "$BASE_URL/api/v1/auth/login" -H "Content-Type: application/json
 ```
 
 Status: `401`. An unknown email produces the exact same response — see `docs/API.md`.
+
+## Project management flow
+
+Continuing with `$TOKEN` from the authentication flow above — create a
+project, receive its API key, use it to send a real event, then manage the
+project:
+
+```bash
+CREATE=$(curl -s -X POST "$BASE_URL/api/v1/projects" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"My Application"}')
+echo "$CREATE"
+PROJECT_ID=$(echo "$CREATE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["id"])')
+PROJECT_API_KEY=$(echo "$CREATE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["apiKey"])')
+```
+
+```json
+{ "success": true, "project": { "id": "proj_...", "name": "My Application", "apiKeyLastFour": "a1b2", "createdAt": "...", "updatedAt": "...", "apiKey": "mnst_..." } }
+```
+
+```bash
+# Install SDK / start monitoring — the newly issued key works immediately:
+curl -s -X POST "$BASE_URL/api/v1/events" -H "Authorization: Bearer $PROJECT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"id":"evt_1","type":"error","message":"first error","url":"https://myapp.example.com/","timestamp":"2026-08-26T12:00:00.000Z","environment":"browser","browser":{"userAgent":"Mozilla/5.0 ..."}}'
+# {"success":true,"eventId":"evt_evt_1"}
+
+# List projects:
+curl -s "$BASE_URL/api/v1/projects" -H "Authorization: Bearer $TOKEN"
+
+# Rename it:
+curl -s -X PATCH "$BASE_URL/api/v1/projects/$PROJECT_ID" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"My Renamed App"}'
+
+# Rotate its API key (the old one stops working immediately):
+curl -s -X POST "$BASE_URL/api/v1/projects/$PROJECT_ID/api-key/rotate" -H "Authorization: Bearer $TOKEN"
+# {"success":true,"apiKey":"mnst_<new key>"}
+
+# Delete it (cascades to any error groups/events):
+curl -s -X DELETE "$BASE_URL/api/v1/projects/$PROJECT_ID" -H "Authorization: Bearer $TOKEN"
+# {"success":true}
+```
+
+## Error — accessing another user's project (IDOR-safe)
+
+A project id that's real but belongs to a *different* user returns the exact
+same response as one that doesn't exist at all:
+
+```bash
+curl -s -w "\nstatus: %{http_code}\n" "$BASE_URL/api/v1/projects/$PROJECT_ID" -H "Authorization: Bearer $SOMEONE_ELSES_TOKEN"
+```
+
+```json
+{ "success": false, "error": { "code": "PROJECT_NOT_FOUND", "message": "No project with this id exists for the current user." } }
+```
+
+Status: `404` — never `403`. See `docs/API.md`.
 
 ## Success — `error` event
 

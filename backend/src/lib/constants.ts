@@ -24,3 +24,6 @@ export const PASSWORD_MAX_LEN = 200; // bounds scrypt cost on attacker-supplied 
 
 /** Session tokens are opaque bearer tokens, valid for this long after login. */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/** Project management endpoints — bodies are tiny (just a name), same cap as auth. */
+export const MAX_PROJECT_PAYLOAD_BYTES = 4 * 1024; // 4 KiB

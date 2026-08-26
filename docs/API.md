@@ -9,11 +9,10 @@ those frontends need to read backend source code to integrate.
 - **Format:** JSON request/response bodies throughout
 
 This document currently covers **Phase 7 — Event Ingestion**, **Phase 8 —
-Database & Event Persistence**, and **Phase 9 — Authentication**. Later
-phases will add Projects, API Keys, an Errors query API, Stats, Devices, and
-Notifications sections here as they're built — **there is still no way to
-read ingested events back over the API** until Phase 11, and **no way for a
-logged-in user to create/manage a project** until Phase 10.
+Database & Event Persistence**, **Phase 9 — Authentication**, and **Phase 10
+— Project Management**. Later phases will add an Errors query API, Stats,
+Devices, and Notifications sections here as they're built — **there is still
+no way to read ingested events back over the API** until Phase 11.
 
 ## Authentication
 
@@ -24,9 +23,9 @@ never valid against the other:
 | | Project API key | User session token |
 |---|---|---|
 | Used by | The SDK, sending events from end-user browsers | The landing/onboarding app, dashboard, and mobile app, acting on behalf of a logged-in developer |
-| Obtained via | Today: the backend's seed script only (`npm run db:seed -w backend`, prints one fixed dev-only key). Phase 10 adds real issuance/rotation. | `POST /api/v1/auth/login` |
+| Obtained via | `POST /api/v1/projects` (shown once) or `POST /api/v1/projects/:projectId/api-key/rotate` (shown once). The seed script also prints one fixed dev-only key. | `POST /api/v1/auth/login` |
 | Identifies | A project (an app being monitored) | A user (a developer account) |
-| Lifetime | Indefinite until rotated (Phase 10) | 30 days, or until `POST /api/v1/auth/logout` |
+| Lifetime | Indefinite until rotated | 30 days, or until `POST /api/v1/auth/logout` |
 
 ```
 Authorization: Bearer <apiKey-or-sessionToken>
@@ -58,8 +57,9 @@ cause is logged server-side only.
 | 401 | `INVALID_CREDENTIALS` | (Login only) Email or password is incorrect — deliberately the same message/code either way, so a response can't be used to check whether an email is registered |
 | 401 | `INVALID_SESSION` | The bearer token doesn't match any active session (unknown, expired, or already logged out) |
 | 405 | `METHOD_NOT_ALLOWED` | Any HTTP verb other than the endpoint's documented method/`OPTIONS` |
+| 404 | `PROJECT_NOT_FOUND` | (Project endpoints) No project with this id is owned by the authenticated user — identical whether the id doesn't exist at all or belongs to someone else |
 | 409 | `EMAIL_ALREADY_REGISTERED` | (Register only) An account with this email already exists |
-| 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds the endpoint's size limit (32 KiB for events, 4 KiB for auth) |
+| 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds the endpoint's size limit (32 KiB for events, 4 KiB for auth/projects) |
 | 500 | `INTERNAL_ERROR` | Unexpected server failure — message is always generic |
 
 ## Authentication API
@@ -149,6 +149,94 @@ unrecognized, not to skipping auth entirely.
 
 **Errors:** `401 UNAUTHORIZED`, `500 INTERNAL_ERROR`.
 
+## Project Management API
+
+**Authentication:** every endpoint below requires a **user session token**
+(`Authorization: Bearer <sessionToken>` from `/auth/login`) — never a project
+API key. A project belongs to exactly one user (its creator); every endpoint
+is scoped to `the authenticated user's own projects` and returns
+`404 PROJECT_NOT_FOUND` — not `403` — for a project id that either doesn't
+exist or belongs to someone else. This is deliberate: a `403` would confirm
+the id refers to a *real* project (just not yours); `404` reveals nothing.
+See `plans/DECISIONS.md`.
+
+None of these endpoints ever return a project's full API key **except**
+creation and rotation, and only in that one response — every other response
+(list, get, update) includes `apiKeyLastFour` (the last 4 characters) for
+identification only, never the full key.
+
+### `GET /api/v1/projects`
+
+Lists every project owned by the authenticated user (unpaginated — a
+developer's own project count is expected to be small; revisit if that stops
+being true).
+
+**Success response** — `200 OK`:
+
+```json
+{ "success": true, "projects": [{ "id": "proj_...", "name": "My Application", "apiKeyLastFour": "a1b2", "createdAt": "...", "updatedAt": "..." }] }
+```
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `500 INTERNAL_ERROR`.
+
+### `POST /api/v1/projects`
+
+Creates a project owned by the authenticated user and issues its API key.
+
+**Request body:** `{ "name": "My Application" }`
+
+**Success response** — `201 Created`:
+
+```json
+{ "success": true, "project": { "id": "proj_...", "name": "My Application", "apiKeyLastFour": "a1b2", "createdAt": "...", "updatedAt": "...", "apiKey": "mnst_..." } }
+```
+
+`apiKey` is the **full, raw** key — shown here and only here (also shown once
+more on rotation). Store it now; it cannot be retrieved again, only rotated.
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+
+### `GET /api/v1/projects/:projectId`
+
+**Success response** — `200 OK`: `{ "success": true, "project": { "id", "name", "apiKeyLastFour", "createdAt", "updatedAt" } }` (no `apiKey`).
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `PATCH /api/v1/projects/:projectId`
+
+Renames a project — `name` is the only editable field today.
+
+**Request body:** `{ "name": "New Name" }`
+
+**Success response** — `200 OK`: same shape as `GET` above, with the new name.
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+
+### `DELETE /api/v1/projects/:projectId`
+
+Deletes the project and **cascades** to all of its `ErrorGroup`/`ErrorEvent`
+rows — irreversible, no confirmation step, no soft-delete/undo.
+
+**Success response** — `200 OK`: `{ "success": true }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `POST /api/v1/projects/:projectId/api-key/rotate`
+
+Issues a brand-new API key for the project and **immediately invalidates the
+previous one** — no grace period, no overlap window. Any SDK still using the
+old key starts getting `401 INVALID_API_KEY` on its very next event the
+instant this call returns.
+
+**Success response** — `200 OK`: `{ "success": true, "apiKey": "mnst_..." }` — the new raw key, shown once.
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+There's no separate "issue a first key" endpoint — every project already
+gets one atomically at creation (`POST /api/v1/projects`), so a project
+either has a key from the moment it exists or doesn't exist yet; rotation
+covers every case after that.
+
 ## Event Ingestion
 
 ### `POST /api/v1/events`
@@ -227,10 +315,11 @@ It is never a wildcard (`*`).
   to attach.
 
 Per-project origin allowlisting (letting a project owner register their own
-site's origin) is a natural extension for Phase 10, once there's an
-authenticated API to do it through.
+site's origin) is a natural extension for a future phase, now that Phase 10
+provides an authenticated API a dashboard could build that UI on top of —
+not implemented yet, see Known Limitations.
 
-## Known limitations (Phases 7–9)
+## Known limitations (Phases 7–10)
 
 - Events are persisted and grouped, but there is **no API to read them back**
   yet — that's Phase 11 (Error Query / Dashboard API).
@@ -242,6 +331,13 @@ authenticated API to do it through.
 - No rate limiting yet (planned for Phase 13 hardening) — this applies
   especially to `/auth/login`, where brute-force protection would normally
   live.
+- No pagination on `GET /api/v1/projects` — fine while a developer's project
+  count is small; revisit if that assumption stops holding.
+- Rotating a project's API key is immediate and unconditional — no grace
+  period where both the old and new key work, so a live deployment mid-swap
+  will see a hard cutover, not a rollover window.
+- Project deletion is immediate and irreversible (cascades to all of that
+  project's error groups/events) — no confirmation step, soft-delete, or undo.
 - Sessions don't support "log out everywhere" or a session list — only the
   exact token presented to `/auth/logout` is invalidated. Revisit if a real
   multi-device use case needs it.

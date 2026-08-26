@@ -11,7 +11,8 @@ export type ErrorCode =
   | "VALIDATION_ERROR"
   | "EMAIL_ALREADY_REGISTERED"
   | "INVALID_CREDENTIALS"
-  | "INVALID_SESSION";
+  | "INVALID_SESSION"
+  | "PROJECT_NOT_FOUND";
 
 /**
  * Deliberately-thrown API errors. Anything else caught by the route
@@ -47,6 +48,11 @@ export const ERRORS = {
     new ApiError("EMAIL_ALREADY_REGISTERED", 409, "An account with this email already exists."),
   INVALID_CREDENTIALS: () => new ApiError("INVALID_CREDENTIALS", 401, "Email or password is incorrect."),
   INVALID_SESSION: () => new ApiError("INVALID_SESSION", 401, "Session is invalid, expired, or already logged out."),
+  // Deliberately identical whether the project id doesn't exist at all or
+  // belongs to a different user — never confirm/deny another user's project
+  // exists via response shape. See DECISIONS.md (Phase 10).
+  PROJECT_NOT_FOUND: () =>
+    new ApiError("PROJECT_NOT_FOUND", 404, "No project with this id exists for the current user."),
   invalidEvent: (message: string) => new ApiError("INVALID_EVENT", 400, message),
   validationError: (message: string) => new ApiError("VALIDATION_ERROR", 400, message),
 };

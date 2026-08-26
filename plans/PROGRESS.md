@@ -757,3 +757,120 @@ bearer sessions)"
 
 **Next phase:** Phase 10 — Backend: Project Management API (projects,
 API-key issuance/rotation).
+
+## Phase 10 — Backend: Project Management API
+
+**Status:** Complete
+
+**What was built:**
+- `Project` gained `ownerId` (nullable FK to `User`, cascade delete) and
+  `apiKeyLastFour`. Both nullable rather than required — the Phase 7 seed
+  project predates `User` entirely, and backfilling a NOT NULL constraint
+  onto existing rows is a real-data-risk migration this project had no
+  reason to take on for a dev fixture. `User` gained the inverse `projects`
+  relation. Migration `20260826033901_add_project_ownership_and_key_display`.
+- `backend/prisma/seed.ts` now also seeds a dev `User`
+  (`dev@example.com` / `mini-sentry-dev-password`) and links the existing dev
+  project to it as owner (idempotent upsert), so the seeded project is
+  manageable through the new endpoints too — imports the real
+  `hashPassword()` from `lib/password.ts` rather than duplicating scrypt
+  logic, to avoid the hash format ever drifting out of sync with
+  `verifyPassword()`.
+- `backend/src/lib/authGuard.ts` — `requireSessionUser(request)`: resolves
+  the bearer session token to a user or throws the right `ApiError`
+  (`UNAUTHORIZED`/`INVALID_SESSION`), reused by every route below.
+- `backend/src/lib/project.ts` — `generateApiKey()` (`mnst_` + 24 random
+  bytes; returns the raw key, its hash, and its last 4 chars),
+  `listOwnedProjects`, `findOwnedProject`, `createProject`,
+  `updateProjectName`, `deleteOwnedProject`, `rotateApiKey`. Every lookup/
+  mutation is scoped to `{ id: projectId, ownerId }` **in the query itself**
+  — never "fetch then check owner in application code" — so a project
+  belonging to another user is indistinguishable, at the database level,
+  from one that doesn't exist.
+- `backend/src/lib/projectSchema.ts` — zod schemas for create/update (just
+  `name`, 1–200 chars).
+- Five new routes: `GET`/`POST /api/v1/projects`,
+  `GET`/`PATCH`/`DELETE /api/v1/projects/:projectId`,
+  `POST /api/v1/projects/:projectId/api-key/rotate`. Every response except
+  create/rotate returns `apiKeyLastFour` only, never the full key. Every
+  project-scoped 401/403-shaped failure is actually a uniform
+  `404 PROJECT_NOT_FOUND` (new error code) — deliberately not `403`, so a
+  response can never confirm a project id refers to a real project the
+  caller just doesn't own.
+- **No standalone "issue first key" endpoint** — every project already gets
+  a key atomically at creation, so `POST .../api-key` (without `/rotate`)
+  would have no valid use case; only `.../api-key/rotate` was built. See
+  Decisions.
+- `errors.ts` gained `PROJECT_NOT_FOUND` (404). `constants.ts` gained
+  `MAX_PROJECT_PAYLOAD_BYTES` (4 KiB, same as auth).
+- `docs/API.md` gained a full Project Management API section (all 5
+  endpoints, the API-key lifecycle, the 404-not-403 IDOR rationale) and
+  updated the auth-namespace table (project keys are now issued/rotated
+  through this API, not just the seed script). `docs/API_EXAMPLES.md` gained
+  a create->ingest-a-real-event->rename->rotate->delete walkthrough plus an
+  IDOR (cross-user 404) example.
+
+**Tests performed:**
+- `npm run typecheck` / `npm run build` — clean across all three workspaces;
+  `next build` confirms the Next.js 15+/16 async-`params` convention
+  (`{ params }: { params: Promise<{ projectId: string }> }`) is correct —
+  lists all 5 new routes alongside the existing 5.
+- `find sdk/dist -iname '*.test.*'` / `find backend/.next -iname '*.test.*'` — both empty.
+- `npm run test` (no `DATABASE_URL`): backend now 151 passed + 8 skipped
+  across 22 files. New: `authGuard.test.ts`, `project.test.ts` (every lib
+  function, asserting the ownerId/projectId scoping on every query),
+  `projectSchema.test.ts`, and route tests for all 5 endpoints (auth
+  failures, not-owned -> 404, validation, CORS, unsupported methods).
+  **Found and fixed a real test-authoring bug** while writing these: an
+  `ApiError` constructed from a statically-imported `@/lib/errors` fails
+  `instanceof ApiError` inside a route re-imported after `vi.resetModules()`
+  (different module registry, different class reference) — silently
+  produces a `500` instead of the intended `401`. Fixed by dynamically
+  re-importing `@/lib/errors` *inside* each test's post-reset setup instead
+  of importing it once at the file's top level; documented inline as a
+  reusable pattern for future mocked-rejection tests.
+- **With `DATABASE_URL` set**: 159 passed, 0 skipped — 4 DB-gated
+  integration suites, including two new ones against the real route
+  handlers (not mocks): `projects/flow.integration.test.ts`'s first test
+  drives register -> login -> create project -> receive a real `apiKey` ->
+  **POST a real event to `/api/v1/events` with that freshly issued key and
+  get a real `200`** (proves Phase 10's key issuance is wired to the exact
+  same validation path Phase 7 already uses, not a parallel/untested one);
+  its second test creates two real users and confirms user B gets `404` from
+  every one of GET/PATCH/DELETE/rotate on user A's project, then confirms
+  user A's project is untouched and still fully accessible.
+- **Live end-to-end verification** via curl against a running backend +
+  Postgres, matching the brief's own acceptance-criteria flow exactly:
+  logged in as the seeded dev user, listed projects (seeded project present,
+  no `apiKey` field), created `"My Application"` (got a `201` with the full
+  `apiKey`, in the exact shape the brief's spec showed), used that key to
+  POST a real event to `/api/v1/events` (`200`), `GET`/`PATCH`
+  (rename)/rotated the key (old key immediately `401 INVALID_API_KEY`
+  afterward, confirmed live), then registered a second real user and
+  confirmed **every one** of GET/PATCH/rotate/DELETE on the first user's
+  project returned `404 PROJECT_NOT_FOUND` (not `403`) for the second user,
+  while the real owner's `GET` still worked and showed the untouched
+  project. Finished with the real owner deleting their own project (`200`).
+  Cleaned up the extra test user and tore down the dev server/Postgres
+  container afterward.
+
+**Known limitations:**
+- **No pagination on `GET /api/v1/projects`** — acceptable while a
+  developer's project count stays small; revisit if that assumption breaks.
+- **API-key rotation is immediate and unconditional** — no grace period
+  where both old and new keys work, so a live deployment mid-key-swap sees a
+  hard cutover. Not asked for; documented as a real trade-off.
+- **Project deletion is immediate and irreversible** — cascades to all error
+  groups/events, no confirmation step, soft-delete, or undo.
+- **No per-project CORS origin allowlisting yet** — still a single global
+  `CORS_ALLOWED_ORIGINS` env var; Phase 10 now provides the authenticated API
+  a dashboard *could* build per-project origin management on top of, but that
+  UI/endpoint wasn't asked for and wasn't built.
+- **No browser tool was available in this session** (same as Phases 7–9) —
+  live verification used curl end-to-end.
+- Same carry-over limitations as Phases 7–9: no rate limiting yet, no
+  password reset, no multi-session logout.
+
+**Commit:** _pending_
+
+**Next phase:** Phase 11 — Backend: Error Query / Dashboard API.
