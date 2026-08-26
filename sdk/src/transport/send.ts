@@ -19,7 +19,7 @@ const rawFetch: typeof fetch | undefined =
  * down, unreachable, or non-2xx-responding endpoint only produces a console
  * warning.
  */
-export function sendEvent(endpoint: string, event: CapturedEvent): void {
+export function sendEvent(endpoint: string, apiKey: string, event: CapturedEvent): void {
   if (!rawFetch) {
     warn("no fetch available; cannot send captured event to the transport endpoint.");
     return;
@@ -28,7 +28,10 @@ export function sendEvent(endpoint: string, event: CapturedEvent): void {
   safeExec(() => {
     void rawFetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
       body: JSON.stringify(event),
       keepalive: true,
     })

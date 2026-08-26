@@ -21,14 +21,18 @@ function refreshCaptureLog() {
           .join("\n");
 }
 
-// No backend exists yet (that's Phase 7+), so this endpoint is intentionally
-// unreachable — every captured event's transport POST will fail, demonstrating
-// that a down/misconfigured endpoint only produces a console warning rather
-// than affecting the host app.
-init({ apiKey: "demo_local_key", endpoint: "/mini-sentry/collect" });
+// Points at a local backend (Phase 7, `npm run dev:backend`) seeded via
+// `npm run db:seed -w backend` with this exact dev-only API key. If the
+// backend isn't running, transport sends still fail gracefully (console
+// warning only) — the host app keeps working either way.
+init({
+  apiKey: "mnst_dev_local_0000000000000000000000000000",
+  endpoint: "http://localhost:3000/api/v1/events",
+});
 setStatus(
   "SDK initialized with a valid API key. Open the console for details. " +
-    "(No backend exists yet, so transport sends will fail gracefully — check the console.)",
+    "(Requires the backend running locally — see docs/API_EXAMPLES.md — " +
+    "otherwise transport sends fail gracefully; check the console.)",
 );
 
 // Prove that a bad configuration can never crash the host app: this call is

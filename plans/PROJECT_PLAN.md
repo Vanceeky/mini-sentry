@@ -28,12 +28,29 @@ repository state (not assumed from a prior session).
 | 4 | Local event transport — POST to configurable endpoint, graceful failure | Complete |
 | 5 | Floating user notification — Shadow DOM UI, auto-dismiss | Complete |
 | 6 | SDK polish — bundle size, privacy/perf review, README | Complete |
-| 7+ | Backend, DB, dashboard, deployment, publishing — explicitly deferred | Not started |
+| 7 | Backend: Event Ingestion API (`POST /api/v1/events`, Next.js + Prisma + PostgreSQL) | Complete |
+| 8 | Backend: Database & Event Persistence (full `error_groups`/`error_events` schema, grouping) | Not started |
+| 9 | Backend: Authentication API (register/login/logout/me) | Not started |
+| 10 | Backend: Project Management API (projects, API-key issuance/rotation) | Not started |
+| 11 | Backend: Error Query / Dashboard API (list/detail/stats, used by web dashboard + mobile) | Not started |
+| 12 | Backend: Realtime/Notification foundation (device registration, notification service abstraction) | Not started |
+| 13 | Backend: API Hardening & Handoff (docs, integration tests, security review) | Not started |
 
-Phases 7–13 (Next.js backend, PostgreSQL, project/API-key management, dashboard,
-error grouping, Vercel deployment, npm publishing) are intentionally out of scope until
-explicitly instructed. See `DECISIONS.md` for anything discovered early that belongs to
-a future phase.
+Phase 7 is the first backend phase; the backend is being built for three separate
+frontend teams (landing/onboarding web app, web dashboard, mobile app) working
+independently against the REST contract in `docs/API.md` — this repo does not build
+any of those UIs, only the backend/API. Phases 8–13 remain intentionally out of scope
+until explicitly instructed, one phase at a time. See `DECISIONS.md` for anything
+discovered early that belongs to a future phase.
+
+## Backend guardrails (Phases 7–13)
+
+- REST, not GraphQL; no microservices/Redis/Kafka/queues/Kubernetes.
+- Every phase defines its API contract (request/response/auth/errors) before
+  implementing, and updates `docs/API.md` / `docs/API_EXAMPLES.md`.
+- No fake/placeholder endpoints — an unimplemented capability is a documented "Not
+  started" row above, not a stub that looks real.
+- Never build landing/dashboard/mobile UI in this repo.
 
 ## Definition of done (SDK MVP)
 
@@ -46,7 +63,9 @@ application continuing to function normally throughout.
 
 ```
 mini-sentry/
-  sdk/     framework-agnostic TypeScript SDK (npm workspace package @mini-sentry/sdk)
-  demo/    minimal Vite + vanilla TS browser app consuming the local SDK
-  plans/   PROJECT_PLAN.md, PROGRESS.md, DECISIONS.md (this directory)
+  sdk/      framework-agnostic TypeScript SDK (npm workspace package @mini-sentry/sdk)
+  demo/     minimal Vite + vanilla TS browser app consuming the local SDK
+  backend/  REST API (npm workspace package @mini-sentry/backend) — Next.js + Prisma/PostgreSQL
+  docs/     API.md, API_EXAMPLES.md — the backend's REST contract reference
+  plans/    PROJECT_PLAN.md, PROGRESS.md, DECISIONS.md (this directory)
 ```

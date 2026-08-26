@@ -28,13 +28,16 @@ describe("sendEvent", () => {
     window.fetch = mockFetch;
     const { sendEvent } = await freshSend();
 
-    sendEvent("https://collector.example.com/events", sampleEvent);
+    sendEvent("https://collector.example.com/events", "test-api-key", sampleEvent);
     await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
 
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toBe("https://collector.example.com/events");
     expect(init.method).toBe("POST");
-    expect(init.headers).toEqual({ "Content-Type": "application/json" });
+    expect(init.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer test-api-key",
+    });
     expect(JSON.parse(init.body as string)).toEqual(sampleEvent);
   });
 
@@ -43,7 +46,7 @@ describe("sendEvent", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { sendEvent } = await freshSend();
 
-    expect(() => sendEvent("https://collector.example.com/events", sampleEvent)).not.toThrow();
+    expect(() => sendEvent("https://collector.example.com/events", "test-api-key", sampleEvent)).not.toThrow();
     await vi.waitFor(() => expect(warnSpy).toHaveBeenCalled());
 
     warnSpy.mockRestore();
@@ -54,7 +57,7 @@ describe("sendEvent", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { sendEvent } = await freshSend();
 
-    expect(() => sendEvent("https://collector.example.com/events", sampleEvent)).not.toThrow();
+    expect(() => sendEvent("https://collector.example.com/events", "test-api-key", sampleEvent)).not.toThrow();
     await vi.waitFor(() => expect(warnSpy).toHaveBeenCalled());
 
     warnSpy.mockRestore();
@@ -68,7 +71,7 @@ describe("sendEvent", () => {
     const laterMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     window.fetch = laterMock;
 
-    sendEvent("https://collector.example.com/events", sampleEvent);
+    sendEvent("https://collector.example.com/events", "test-api-key", sampleEvent);
     await vi.waitFor(() => expect(originalMock).toHaveBeenCalledTimes(1));
 
     expect(laterMock).not.toHaveBeenCalled();
@@ -80,7 +83,7 @@ describe("sendEvent", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { sendEvent } = await freshSend();
 
-    expect(() => sendEvent("https://collector.example.com/events", sampleEvent)).not.toThrow();
+    expect(() => sendEvent("https://collector.example.com/events", "test-api-key", sampleEvent)).not.toThrow();
     expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();

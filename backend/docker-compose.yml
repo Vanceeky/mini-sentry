@@ -1,0 +1,15 @@
+# Local Postgres for backend development/testing only — not a deployment artifact.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: mini_sentry
+      POSTGRES_PASSWORD: mini_sentry
+      POSTGRES_DB: mini_sentry
+    ports:
+      - "5433:5432"
+    volumes:
+      - mini_sentry_pg_data:/var/lib/postgresql/data
+
+volumes:
+  mini_sentry_pg_data:

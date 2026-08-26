@@ -205,10 +205,90 @@ re-litigate them without cause.
   monorepo's context, matching how the package is already structured as an independent
   workspace.
 
+## Phase 7
+
+- **API key transport gap, closed via an SDK amendment**: exploration found that
+  `sdk/src/transport/send.ts` validated `config.apiKey` (Phase 1) but never actually
+  put it anywhere in the outbound request — no header, no query param. Since Phase 7
+  requires API-key auth on ingestion, this had to be fixed for the acceptance
+  criteria ("SDK can successfully send events") to be true end-to-end. Confirmed with
+  the user: added `Authorization: Bearer <apiKey>` to the existing `fetch` call,
+  scoped and minimal (one new parameter, one new header, no other transport
+  behavior changed). Treated as a Phase 4 amendment, not a rewrite — Phase 4's own
+  `PROGRESS.md` entry is left historically accurate; this phase's entry documents the
+  change.
+- **ORM: Prisma**, chosen by the user for strong TypeScript types and built-in
+  migrations over Drizzle or raw `pg`. **Pinned to 6.19.3**, not the `latest` dist-tag
+  (which resolved to `8.0.0-rc.10`, a release candidate with a breaking change: schema
+  files can no longer declare `datasource.url` directly, requiring a separate
+  `prisma.config.ts` + adapter). Prisma 6 keeps the standard `url = env("DATABASE_URL")`
+  schema pattern and a plain `new PrismaClient()` constructor — simpler, and matches
+  the "keep it simple/predictable" mandate for this backend. Revisit the Prisma 7
+  migration only if a real reason to upgrade appears.
+- **Phase 7/8 schema boundary**: Phase 7 introduces exactly one Prisma model
+  (`Project`: `id`, `name`, `apiKeyHash`, timestamps) — just enough to validate a real
+  API key — and deliberately does **not** persist ingested events anywhere yet.
+  Considered adding a lightweight "staging" events table now, but rejected: nothing in
+  Phase 7's acceptance criteria requires a stored record (only a response), and a
+  staging table would just be dead weight Phase 8 immediately replaces once its full
+  `error_groups`/`error_events` schema and grouping logic exist. Phase 8 should treat
+  `Project`'s current fields as additive-only, since the seeded dev project, the demo
+  app, and `docs/API_EXAMPLES.md`'s curl samples all depend on this exact shape.
+- **API keys stored hashed (SHA-256, unsalted)**, never raw — `lib/apiKey.ts`'s
+  `hashApiKey()`. No salt/keyed hash: these are high-entropy random tokens, not
+  low-entropy user passwords, so the usual salting rationale doesn't apply; a plain
+  digest is sufficient and keeps lookup a simple unique-index query.
+- **CORS: global env-var allowlist (`CORS_ALLOWED_ORIGINS`), not per-project** — CORS
+  preflight (`OPTIONS`) fires before the browser sends the `Authorization` header, so
+  there's no way to know *which project* is asking during preflight, only the
+  `Origin`. Resolving that per-project now would mean either a DB lookup keyed only on
+  origin (ambiguous — multiple projects could share an origin) or restructuring the
+  handshake. A global allowlist is simple and correct for now; per-project origin
+  registration is a natural Phase 10 extension, once there's an authenticated API for
+  project owners to register their own site's origin. Never a blind `"*"` — enforced
+  structurally in `resolveCorsHeaders()`, which only ever reflects a literal match.
+- **Truncate overlong string fields, don't reject them**: `message`/`stack`/
+  `browser.userAgent`/`request.url` are capped and truncated (with a suffix marker),
+  not treated as validation failures — a verbose but otherwise legitimate error
+  message (e.g. one embedding a large JSON blob) shouldn't cause the whole event to be
+  dropped. The wire-level 32 KiB payload cap still bounds worst-case abuse; only
+  structural/type validity (missing field, wrong type, bad enum, bad timestamp,
+  `type:"http"` without `request`) is a hard `400 INVALID_EVENT`.
+- **`request.url`/top-level `url` validated as non-empty strings, not well-formed
+  URLs**: `sdk/src/core/scrub.ts`'s `scrubUrl()` returns its input completely
+  unchanged whenever there's nothing to redact, which can legitimately be a relative
+  path (e.g. a same-origin `fetch("/api/x")`) — the top-level `url` is always absolute
+  (sourced from `location.href`), but `request.url` is not. Validating either as
+  `z.string().url()` would incorrectly reject real, valid `"http"` events.
+- **Centralized error handling** (`lib/errors.ts`'s `ApiError`/`jsonError()`): the
+  route's top-level `try/catch` only ever produces the generic `INTERNAL_ERROR`
+  response for anything that isn't a deliberately-thrown `ApiError` — the real error
+  is `console.error`-logged server-side only. This is a structural guarantee (there is
+  no code path where a caught error's own message reaches a response body), not a
+  convention that has to be remembered per-handler.
+- **Events accepted but not persisted**: a structured `console.log` (`projectId`,
+  `eventId`, `type`, `receivedAt`) is Phase 7's only visibility into accepted events,
+  deliberately excluding `message`/`stack`/`url` to avoid dumping arbitrary
+  user-supplied content into server logs by default. Real storage arrives in Phase 8.
+- **`agentRules: false`** in `backend/next.config.mjs`: Next.js 16 auto-generates its
+  own `AGENTS.md`/`CLAUDE.md` inside the workspace on every `dev`/`build` run (verified
+  live — it appeared, then reappeared after deletion, until this flag was set).
+  Disabled because this repo already has a deliberate, hand-authored root `CLAUDE.md`
+  with project-specific conventions; a framework-generated one inside `backend/` would
+  be confusing noise, not a real project convention.
+- **No browser tool available this session**: end-to-end verification of the SDK →
+  backend round trip used `curl` with a matching `Origin` header (indistinguishable
+  from a real browser request as far as the server's CORS logic is concerned) rather
+  than an actual browser click-through. See `PROGRESS.md`'s Phase 7 Known Limitations.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
   explicitly allows deferring XHR if it adds substantial complexity. Revisit if a real
   host app needs it.
-- Any backend/DB/dashboard/auth/deployment/publishing work (Phases 7–13): explicitly
-  out of scope until instructed.
+- Full event persistence, error grouping (`error_groups`/`error_events` schema),
+  authentication, project/API-key management, the error-query/dashboard API,
+  notifications, and final hardening (Phases 8–13): explicitly out of scope until
+  instructed, one phase at a time.
+- Per-project CORS origin allowlisting: deferred to Phase 10 (see Phase 7 above).
+- Rate limiting on `/api/v1/events`: deferred to Phase 13 (hardening).

@@ -395,6 +395,139 @@ auto-dismiss)"
 **Commit:** `c949878` — "Phase 6: SDK polish (bundle size review, URL privacy
 scrubbing, defensive copy, README)"
 
-**Next phase:** none currently planned — Phases 0–6 (the SDK MVP) are complete.
-Phases 7+ (backend, database, dashboard, deployment, publishing) remain explicitly out
-of scope until instructed.
+**Next phase:** Phase 7 — Backend: Event Ingestion API.
+
+## Phase 7 — Backend: Event Ingestion API
+
+**Status:** Complete
+
+**What was built:**
+- New `backend/` npm workspace (`@mini-sentry/backend`): Next.js 16 (App Router,
+  Turbopack), TypeScript, added to root `package.json`'s `workspaces` and a new
+  `dev:backend` script (the existing demo-focused `dev` script is untouched).
+- `backend/prisma/schema.prisma` — a minimal `Project` model (`id`, `name`,
+  `apiKeyHash`, `createdAt`, `updatedAt`) via Prisma **6.19.3** (see Decisions — Prisma
+  7's `latest` tag turned out to be a breaking-change release candidate requiring a
+  separate config-file/adapter setup, so Prisma 6 was pinned instead). Migration
+  `20260826025844_init_projects` committed under `backend/prisma/migrations/`.
+- `backend/prisma/seed.ts` — upserts one `"Local Dev Project"` with a fixed, well-known
+  dev-only API key (`mnst_dev_local_0000000000000000000000000000`), reused by the
+  demo app, `docs/API_EXAMPLES.md`'s curl samples, and the integration test.
+- `backend/src/lib/`: `constants.ts` (payload/field size caps), `errors.ts`
+  (`ApiError`/`ERRORS`/`jsonError()` — the single choke point ensuring no DB error or
+  internal detail ever reaches a response body), `cors.ts` (env-allowlist-based
+  `resolveCorsHeaders()`), `apiKey.ts` (`hashApiKey()` — SHA-256, unsalted;
+  `extractBearerToken()`; `findProjectByApiKey()`), `eventSchema.ts` (zod schema
+  mirroring the SDK's `CapturedEvent` exactly, plus `normalizeEvent()` which truncates
+  — not rejects — overlong strings), `db.ts` (Prisma client singleton, reused across
+  dev hot-reloads via `globalThis`).
+- `backend/src/app/api/v1/events/route.ts` — `POST /api/v1/events`: validates the
+  `Authorization: Bearer <apiKey>` header shape → checks raw body size (32 KiB cap,
+  before JSON parsing) → parses JSON → validates against the event schema →
+  normalizes/truncates → looks up the project by hashed API key → responds
+  `{success:true, eventId:"evt_<id>"}`. A top-level `try/catch` maps any unexpected
+  error to a generic `INTERNAL_ERROR`. Also exports `OPTIONS` (CORS preflight, `204`)
+  and `GET`/`PUT`/`DELETE`/`PATCH` (all `405 METHOD_NOT_ALLOWED`).
+- **Events are validated and acknowledged but not yet persisted** — a structured
+  `console.log` (`projectId`, `eventId`, `type`, `receivedAt`; deliberately excluding
+  `message`/`stack`/`url`) is the only visibility into accepted events for now. Full
+  persistence + grouping is Phase 8's job, once `error_groups`/`error_events` exist —
+  see Decisions.
+- **SDK amendment (Phase 4 follow-up)**: `sdk/src/transport/send.ts`'s `sendEvent()`
+  now takes an `apiKey` parameter and sends `Authorization: Bearer <apiKey>` alongside
+  `Content-Type: application/json` — closing a real gap found during Phase 7 planning:
+  the SDK validated `config.apiKey` but never actually transmitted it, so no backend
+  could have authenticated a request from this SDK before now. `sdk/src/index.ts`'s
+  call site updated (`resolved.apiKey` was already guaranteed non-empty).
+- `demo/src/main.ts` — `init()` now points at `http://localhost:3000/api/v1/events`
+  with the seeded dev API key (replacing the Phase 4 placeholder, deliberately
+  unreachable, `/mini-sentry/collect` endpoint).
+- `docs/API.md` and `docs/API_EXAMPLES.md` (new) — full contract reference and
+  runnable curl examples for every documented success/error case.
+- Root `.gitignore` gained `.env`, `.env*.local`, `.next/`.
+- `backend/next.config.mjs` sets `agentRules: false` — Next.js 16 otherwise
+  auto-generates its own `AGENTS.md`/`CLAUDE.md` inside `backend/` on every dev/build
+  run, which would sit confusingly alongside this repo's own hand-authored root
+  `CLAUDE.md`.
+
+**Tests performed:**
+- `npm run typecheck` — clean across all three workspaces.
+- `npm run build` — sdk (`dist/`), demo (Vite), and backend (`next build`, Turbopack)
+  all succeed; `next build` prints `POST /api/v1/events` as the one dynamic route.
+- `find sdk/dist -iname '*.test.*'` and `find backend/.next -iname '*.test.*'` — both
+  empty, confirming no test files leak into either build output.
+- `npm run test` — sdk: 57 Vitest tests across 12 files (unchanged count; 5 existing
+  `transport/send.test.ts` cases updated for the new `apiKey` parameter/header).
+  backend: 44 passed + 2 skipped across 6 files — unit tests for `cors` (allowed/
+  disallowed/missing origin, never reflects a literal `*`), `errors` (response shape,
+  status codes, generic `INTERNAL_ERROR` message), `apiKey` (hash determinism,
+  bearer-token extraction, mocked-Prisma lookup), `eventSchema` (every required-field/
+  enum/timestamp/`type:"http"`-without-`request` rejection case, acceptance of a
+  *relative* `request.url`, truncation), and `route.test.ts` (every documented HTTP
+  status/error code plus the success path, CORS header presence/absence, `OPTIONS`
+  204, unsupported methods). The 2 skipped tests are the DB-gated
+  `route.integration.test.ts` (`describe.skipIf(!process.env.DATABASE_URL)`), which
+  only runs against a real Postgres.
+- **Live end-to-end verification** (no browser tool available in this session, so
+  driven via `curl` rather than an actual browser — see Known Limitations):
+  1. `docker-compose up -d` (local Postgres, port 5433 — see note below), `prisma
+     migrate dev --name init_projects` (applied cleanly), `npm run db:seed -w backend`
+     (printed the dev key).
+  2. `npm run dev:backend`, then curl'd every documented success/error path — status
+     codes and response bodies matched `docs/API.md` exactly: `200` (error event),
+     `200` (http event with a relative `request.url`), `401 UNAUTHORIZED` (missing
+     header), `401 INVALID_API_KEY` (bad key), `400 INVALID_EVENT` (malformed JSON),
+     `400 INVALID_EVENT` (`http` type missing `request`), `413 PAYLOAD_TOO_LARGE`
+     (40 KB message), `405 METHOD_NOT_ALLOWED` (`GET`), `204` + correct headers for an
+     `OPTIONS` preflight from an allowed origin, no CORS headers for a disallowed
+     origin. The server's console log showed the expected `event accepted {...}` line
+     for each successful POST.
+  3. Started the demo's Vite dev server (`localhost:5173`) and curl'd
+     `POST /api/v1/events` with `Origin: http://localhost:5173` (simulating the exact
+     cross-origin request the SDK's `fetch` call would make) — got `200` with
+     `access-control-allow-origin: http://localhost:5173` present, confirming the CORS
+     configuration actually permits the demo's real origin. Also confirmed via the
+     demo dev server's served source that `main.ts` resolves to the correct
+     `apiKey`/`endpoint` values.
+  4. Tore down both dev servers and the Postgres container after verification.
+
+**Known limitations:**
+- **No browser tool was available in this session**, so the demo's buttons were not
+  clicked in an actual browser window — verification relied on the Vitest suites plus
+  the curl-based checks in step 3 above (a same-shape cross-origin request with the
+  right `Origin` header, which the backend's CORS logic can't distinguish from a real
+  browser request). Recommend a quick manual check (start Postgres + backend + demo
+  per the README, click each demo button, watch Network tab + backend console) when
+  convenient.
+- **Events are not persisted** — accepted events are validated and acknowledged only
+  (a console log line, not a database row). Full persistence and error grouping is
+  Phase 8's explicit job.
+- **CORS is a single global env-var allowlist, not per-project** — every project
+  currently shares one `CORS_ALLOWED_ORIGINS` list. Per-project origin allowlisting is
+  a natural Phase 10 extension once there's an authenticated API for project owners to
+  register their own origins.
+- **No rate limiting** — deferred to Phase 13 (hardening) per the project's phased
+  scope; nothing currently stops a high-volume sender from hitting this endpoint
+  repeatedly beyond the per-request 32 KiB payload cap.
+- **Pre-existing SDK discrepancy, not introduced here**: `sdk/src/transport/send.ts`'s
+  `fetch` call still doesn't set `credentials: "omit"` explicitly, so it falls back to
+  the fetch-spec default of `"same-origin"` — for a same-origin `endpoint` a cookie
+  could technically be attached, which is a minor mismatch against the SDK's
+  cookie-privacy claims. Noted here since it's directly relevant to this endpoint;
+  fixing it wasn't part of Phase 7's scope.
+- `npm audit` flags a high-severity stack-exhaustion advisory in `deepmerge-ts`, a
+  transitive dependency of the `prisma` **CLI** package (not `@prisma/client`, which
+  ships in the actual running server). It's a dev-only build/migration tool, not part
+  of the request-handling runtime; the suggested fix (`npm audit fix --force`) would
+  force-upgrade to Prisma 7, which has the breaking config change noted above. Left
+  as-is; revisit if Prisma 6.x stops receiving security patches.
+- Local Postgres runs on port **5433**, not the default 5432, specifically to avoid
+  colliding with any Postgres a developer's machine already has running locally.
+- On this machine, the Docker Compose **plugin** (`docker compose`) isn't installed —
+  only the standalone `docker-compose` binary is. Both are documented in the README;
+  use whichever is actually available.
+
+**Commit:** _pending_
+
+**Next phase:** Phase 8 — Backend: Database & Event Persistence (full
+`error_groups`/`error_events` schema, grouping logic).

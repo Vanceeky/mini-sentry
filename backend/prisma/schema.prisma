@@ -1,0 +1,22 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Phase 7 scope: just enough to validate an API key against a real project.
+// Phase 8 will add the full data model (error_groups, error_events) and may
+// extend this model — but the fields below are additive-only from here on,
+// since the seed data / dev API key / tests all depend on this exact shape.
+model Project {
+  id         String   @id @default(cuid())
+  name       String
+  apiKeyHash String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("projects")
+}

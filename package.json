@@ -5,13 +5,15 @@
   "description": "Mini Sentry - lightweight client-side error monitoring SDK",
   "workspaces": [
     "sdk",
-    "demo"
+    "demo",
+    "backend"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run build -w sdk && npm run typecheck --workspaces --if-present",
-    "dev": "npm run build -w sdk && npm run dev -w demo"
+    "dev": "npm run build -w sdk && npm run dev -w demo",
+    "dev:backend": "npm run dev -w backend"
   },
   "license": "ISC"
 }

@@ -38,7 +38,7 @@ export function init(config: MiniSentryConfig): void {
       info(`captured ${event.type} event`, event);
       showCaptureNotification(event);
       if (resolved.endpoint) {
-        sendEvent(resolved.endpoint, event);
+        sendEvent(resolved.endpoint, resolved.apiKey, event);
       }
     };
     installGlobalErrorListeners(onCapture);
