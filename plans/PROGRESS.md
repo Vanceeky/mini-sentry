@@ -532,3 +532,110 @@ POST /api/v1/events)"
 
 **Next phase:** Phase 8 — Backend: Database & Event Persistence (full
 `error_groups`/`error_events` schema, grouping logic).
+
+## Phase 8 — Backend: Database & Event Persistence
+
+**Status:** Complete
+
+**What was built:**
+- `backend/prisma/schema.prisma` extended with two new models, both with a
+  foreign key back to `Project` (`onDelete: Cascade`):
+  - `ErrorGroup` — `id`, `projectId`, `fingerprint`, `type`, `message`,
+    `firstSeenAt`, `lastSeenAt`, `occurrenceCount`, timestamps. Unique on
+    `[projectId, fingerprint]` (also the lookup index for upserts); a
+    separate index on `fingerprint` and on `projectId`.
+  - `ErrorEvent` — `id`, `projectId`, `groupId` (FK to `ErrorGroup`, cascade),
+    `type`, `message`, `stack`, `url`, `method`, `statusCode`, `timestamp`,
+    `browser`, `os`, `environment`, `metadata`, `createdAt`. Indexes on
+    `projectId`, `groupId`, `createdAt`, `timestamp`.
+  - `os` and `metadata` are nullable and **never populated** — the current
+    `CapturedEvent` contract has no user-agent-parsed OS or `metadata` field
+    to put there (see Decisions). Reserved columns, not faked data.
+  - Migration `20260826031746_add_error_groups_and_events`, committed under
+    `backend/prisma/migrations/`.
+- `backend/src/lib/fingerprint.ts` — `computeFingerprint(event)`: SHA-256 of
+  `type|message` (plus `method url` for `"http"` events, since their
+  `message` is often a generic string shared across unrelated endpoints —
+  see Decisions).
+- `backend/src/lib/persistEvent.ts` — `persistEvent(projectId, event)`: a
+  single Prisma `$transaction` that upserts the `ErrorGroup` by
+  `[projectId, fingerprint]` (create with `occurrenceCount: 1`, or update
+  `lastSeenAt` + `occurrenceCount: {increment: 1}`), then creates the
+  `ErrorEvent` row pointed at that group. Atomic — a group's counter can
+  never advance without the corresponding event row actually being written.
+- `backend/src/app/api/v1/events/route.ts` — now calls `persistEvent()` after
+  a successful API-key lookup, replacing Phase 7's "accepted but not stored"
+  console log with real persistence (log line now includes `groupId`/
+  `eventId`/`occurrenceCount`). **The response contract is unchanged** —
+  `eventId` in the JSON response is still the client-supplied id echoed back
+  (`evt_<id>`), not the database row id, so this phase is invisible to API
+  consumers except for the fact that data now actually lands somewhere.
+- `docs/API.md`/`docs/API_EXAMPLES.md` updated: grouping behavior documented,
+  "not yet persisted" limitation removed, replaced with "no read API yet
+  (Phase 11)" and the `os`/`metadata` reserved-column note.
+
+**Tests performed:**
+- `npm run typecheck` — clean across all three workspaces.
+- `npm run build` — sdk, demo, and backend (`next build`) all succeed.
+- `find sdk/dist -iname '*.test.*'` / `find backend/.next -iname '*.test.*'` —
+  both empty.
+- `npm run test` (no `DATABASE_URL`, default run): sdk unchanged at 57 tests;
+  backend now 55 passed + 2 skipped across 8 files (12 new: 5 in
+  `fingerprint.test.ts` — determinism, message/type sensitivity, http events
+  grouped by method+url not just message; 4 in `persistEvent.test.ts` — the
+  upsert/create call shape via a mocked Prisma `$transaction`, http
+  method/statusCode population, non-http fields left undefined,
+  post-increment `occurrenceCount` returned; 3 new cases in
+  `route.test.ts` — `persistEvent` called with the right `projectId`/event,
+  and a persistence failure maps to a sanitized `500 INTERNAL_ERROR` that
+  never leaks the underlying error message).
+- **With `DATABASE_URL` set** (real local Postgres): 59 passed, 0 skipped —
+  the two DB-gated integration suites both ran: the existing
+  `route.integration.test.ts` (API-key lookup) plus a new
+  `persistEvent.integration.test.ts` proving a real
+  `Project -> ErrorGroup -> ErrorEvent` chain persists on first occurrence,
+  and that a second matching event increments the *same* group's
+  `occurrenceCount` rather than creating a new one.
+- **Live end-to-end verification** against a real local Postgres +running
+  backend:
+  1. Applied the new migration (`prisma migrate dev`), reseeded (idempotent
+     upsert — same dev project id as Phase 7).
+  2. POSTed the same `error` event 3 times via curl, then a differently
+     shaped `http` event once. Confirmed via `psql` directly against
+     `error_groups`/`error_events`: the 3 repeats collapsed into **one**
+     `ErrorGroup` row with `occurrenceCount: 3` and 3 linked `ErrorEvent`
+     rows sharing that `groupId`; the `http` event formed its own separate
+     group (proving message-only grouping would have been wrong — see
+     Decisions). Backend console log lines matched
+     (`groupId`/`eventId`/`occurrenceCount` present, message/stack/url still
+     excluded).
+  3. Manually inserted a project + group + event row and deleted the
+     project directly via `psql`, confirming `ON DELETE CASCADE` actually
+     removes the dependent group/event rows (not just a Prisma-level
+     assumption).
+  4. Cleaned up test rows, tore down the dev server and Postgres container.
+
+**Known limitations:**
+- **Still no read API** — events are persisted and grouped, but there's no
+  endpoint to query them back yet; that's Phase 11 (Error Query / Dashboard
+  API). The only way to inspect stored data today is `npm run db:studio -w
+  backend` or `psql` directly.
+- **`os`/`metadata` are reserved, unpopulated columns** — no user-agent
+  parsing exists (an explicit decision carried over from Phase 2/3), and the
+  SDK's wire contract has no `metadata` field yet. Always `null`, not faked.
+- **Fingerprinting is message-based, not stack-based** — the SDK sends a raw
+  stack string, not structured frames, so grouping can't key off "same top
+  frame" the way a real error tracker does. Two textually-different messages
+  for what a human would consider "the same bug" (e.g. an error message that
+  embeds a dynamic id) will form separate groups. Acceptable for this MVP;
+  documented as a real limitation, not silently glossed over.
+- **No browser tool was available in this session** (same as Phase 7) — live
+  verification used curl + direct `psql` inspection of the resulting rows
+  rather than clicking through the demo app in an actual browser.
+- Same carry-over limitations as Phase 7: CORS is a global (not per-project)
+  allowlist, no rate limiting yet, and the SDK's `fetch` call still doesn't
+  explicitly set `credentials: "omit"`.
+
+**Commit:** _pending_
+
+**Next phase:** Phase 9 — Backend: Authentication API (register/login/logout/me).

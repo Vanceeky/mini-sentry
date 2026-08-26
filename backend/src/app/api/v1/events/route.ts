@@ -4,6 +4,7 @@ import { resolveCorsHeaders } from "@/lib/cors";
 import { MAX_EVENT_PAYLOAD_BYTES } from "@/lib/constants";
 import { ApiError, ERRORS, jsonError } from "@/lib/errors";
 import { capturedEventSchema, normalizeEvent } from "@/lib/eventSchema";
+import { persistEvent } from "@/lib/persistEvent";
 
 export async function OPTIONS(request: Request): Promise<NextResponse> {
   const cors = resolveCorsHeaders(request.headers.get("origin"));
@@ -45,16 +46,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       return jsonError(ERRORS.INVALID_API_KEY(), cors);
     }
 
-    // Phase 7 validates and acknowledges events; it does not persist them —
-    // that's Phase 8's job, once the error_groups/error_events schema and
-    // grouping logic exist. This log line is the only visibility into
-    // accepted events for now, deliberately excluding message/stack/url to
-    // avoid dumping arbitrary user-supplied content into server logs.
-    console.log("event accepted", {
+    const persisted = await persistEvent(project.id, event);
+
+    // Deliberately excludes message/stack/url to avoid dumping arbitrary
+    // user-supplied content into server logs.
+    console.log("event persisted", {
       projectId: project.id,
-      eventId: event.id,
+      groupId: persisted.groupId,
+      eventId: persisted.eventId,
+      occurrenceCount: persisted.occurrenceCount,
       type: event.type,
-      receivedAt: new Date().toISOString(),
     });
 
     return NextResponse.json({ success: true, eventId: `evt_${event.id}` }, { status: 200, headers: cors });

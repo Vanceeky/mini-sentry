@@ -281,14 +281,54 @@ re-litigate them without cause.
   from a real browser request as far as the server's CORS logic is concerned) rather
   than an actual browser click-through. See `PROGRESS.md`'s Phase 7 Known Limitations.
 
+## Phase 8
+
+- **Fingerprint = hash(type + message [+ method+url for "http"])**: the SDK sends a
+  raw stack *string*, not structured frames (a Phase 2 decision — no stack-frame
+  parsing exists), so grouping can't key off "same top stack frame" the way a real
+  error tracker does. Message-based grouping is the simplest thing that actually
+  works. For `"http"` events specifically, `message` alone is too coarse — every
+  failed request produces a generic string like `"HTTP 500 Internal Server Error"`
+  (see `docs/API_EXAMPLES.md`), which would incorrectly merge unrelated endpoints into
+  one group. Confirmed live: an identical error sent 3 times collapsed into one group
+  with `occurrenceCount: 3`; a differently-endpointed `http` event correctly formed a
+  separate group. Trade-off, documented as a real limitation: two textually-different
+  messages for what a human would call "the same bug" (e.g. one embedding a dynamic
+  id) will form separate groups.
+- **Group upsert + event create in one Prisma `$transaction`**: guarantees a group's
+  `occurrenceCount`/`lastSeenAt` can never advance without the corresponding
+  `ErrorEvent` row actually being persisted (and vice versa) — no code path can leave
+  the two out of sync, even under a mid-write failure.
+- **`ErrorGroup.message` is the first occurrence's message, never updated**: matches
+  Phase 11's expected "representative error information" (a stable title per group),
+  rather than churning on every new occurrence.
+- **Response contract unchanged**: `POST /api/v1/events`'s `eventId` in the JSON
+  response is still the client-supplied id echoed back, not the database row id or the
+  group id. Phase 8 is entirely a server-side/storage change — no API consumer
+  (including the SDK) needs to change anything to benefit from it.
+- **`os`/`metadata` columns added but never populated**: the user's own Phase 8 field
+  list names both, but the current `CapturedEvent` wire contract has no `metadata`
+  field, and this repo has an explicit prior decision (Phase 2) against parsing
+  `os`/browser name out of the raw user-agent string. Storing `null` is honest about
+  what wasn't captured; the columns exist so a future phase can populate them without
+  a schema migration once there's real data to put there. Not "fake" functionality —
+  documented explicitly as reserved/unpopulated in both `docs/API.md` and
+  `PROGRESS.md`.
+- **`ON DELETE CASCADE` from `Project` through `ErrorGroup`/`ErrorEvent`**: verified
+  live via direct `psql` inserts/deletes (not just assumed from the Prisma schema) —
+  deleting a project also removes its groups and events, avoiding orphaned rows. No
+  soft-delete/archival was asked for.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
   explicitly allows deferring XHR if it adds substantial complexity. Revisit if a real
   host app needs it.
-- Full event persistence, error grouping (`error_groups`/`error_events` schema),
-  authentication, project/API-key management, the error-query/dashboard API,
-  notifications, and final hardening (Phases 8–13): explicitly out of scope until
-  instructed, one phase at a time.
+- An API to read back persisted events/groups (Errors query/Dashboard API),
+  authentication, project/API-key management, notifications, and final hardening
+  (Phases 9–13): explicitly out of scope until instructed, one phase at a time.
 - Per-project CORS origin allowlisting: deferred to Phase 10 (see Phase 7 above).
 - Rate limiting on `/api/v1/events`: deferred to Phase 13 (hardening).
+- Stack-frame-based (rather than message-based) error grouping: not attempted — the
+  SDK doesn't capture structured frames, and adding that is a bigger change to the
+  capture contract than this backend-only phase should make unilaterally.

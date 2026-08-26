@@ -22,8 +22,8 @@ This project is built one phase at a time against `plans/PROJECT_PLAN.md`.
 Read these before assuming what exists — check `plans/PROGRESS.md`'s latest phase
 before recommending or building on something that "should" be there.
 
-Phase 7 (event ingestion API) is complete. Phases 8–13 (full DB persistence/error
-grouping, auth, project/API-key management, the error-query/dashboard API,
+Phases 7–8 (event ingestion API, full DB persistence/error grouping) are complete.
+Phases 9–13 (auth, project/API-key management, the error-query/dashboard API,
 notifications, final hardening) are **explicitly out of scope** until the user asks
 for them — don't start scaffolding for them proactively. Never build dashboard/
 mobile/landing UI in this repo — backend/API only.
@@ -76,6 +76,14 @@ mobile/landing UI in this repo — backend/API only.
 - **Prisma**: schema at `backend/prisma/schema.prisma`; `backend/src/lib/db.ts` is the
   shared client singleton (reused across dev hot-reloads via `globalThis`). Treat
   already-shipped model fields as additive-only across phases — see `plans/DECISIONS.md`.
+- **Group-then-persist pattern**: `backend/src/lib/fingerprint.ts`'s
+  `computeFingerprint()` + `backend/src/lib/persistEvent.ts`'s `persistEvent()` (a
+  single Prisma `$transaction` upserting the group, then creating the event row) is
+  the established pattern for writing grouped/aggregated data — keep group-counter
+  updates and the row they're counting in the same transaction.
+- **Reserved-but-unpopulated columns** (`ErrorEvent.os`/`.metadata`): fine to add a
+  column ahead of having real data for it, as long as it's explicitly documented as
+  reserved/`null` (in `docs/API.md` and `PROGRESS.md`) rather than silently faked.
 - **`agentRules: false`** is set in `backend/next.config.mjs` — Next.js 16 otherwise
   auto-generates its own `AGENTS.md`/`CLAUDE.md` inside `backend/` on every dev/build
   run, which would collide confusingly with this repo's own hand-authored root

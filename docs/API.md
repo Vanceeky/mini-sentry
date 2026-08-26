@@ -8,9 +8,12 @@ those frontends need to read backend source code to integrate.
 - **Versioning:** all endpoints are prefixed `/api/v1`
 - **Format:** JSON request/response bodies throughout
 
-This document currently covers **Phase 7 — Event Ingestion** only. Later
-phases will add Authentication, Projects, API Keys, Errors, Stats, Devices,
-and Notifications sections here as they're built.
+This document currently covers **Phase 7 — Event Ingestion** and **Phase 8 —
+Database & Event Persistence** (which changes what happens behind this
+endpoint, not its request/response contract). Later phases will add
+Authentication, Projects, API Keys, an Errors query API, Stats, Devices, and
+Notifications sections here as they're built — **there is still no way to
+read ingested events back over the API** until Phase 11.
 
 ## Authentication
 
@@ -53,9 +56,19 @@ cause is logged server-side only.
 
 ### `POST /api/v1/events`
 
-Accepts a single captured event from the SDK. Events are validated and
-acknowledged, but **not yet persisted to a queryable store** — that lands in
-Phase 8 along with error grouping. See Known Limitations below.
+Accepts a single captured event from the SDK. As of Phase 8, events are
+validated, **persisted, and grouped** into a `Project -> ErrorGroup ->
+ErrorEvent` chain in PostgreSQL. There is no API to read this data back yet
+(that's Phase 11's Error Query / Dashboard API) — this endpoint remains
+write-only from a consumer's perspective.
+
+Events are grouped by a fingerprint derived from `type` + `message` (plus
+`request.method`+`request.url` for `"http"` events, since their `message` is
+often a generic string like `"HTTP 500 Internal Server Error"` shared across
+unrelated endpoints). Each group tracks `firstSeenAt`/`lastSeenAt` and an
+`occurrenceCount` that increments on every matching event — a burst of the
+same error becomes one group with a growing count, not one row per
+occurrence.
 
 **Authentication:** required (`Authorization: Bearer <apiKey>`)
 
@@ -115,13 +128,17 @@ Per-project origin allowlisting (letting a project owner register their own
 site's origin) is a natural extension for Phase 10, once there's an
 authenticated API to do it through.
 
-### Known limitations (Phase 7)
+### Known limitations (Phase 7 & 8)
 
-- Accepted events are validated and acknowledged, but not yet persisted to
-  any queryable store or grouped — that's Phase 8.
+- Events are persisted and grouped, but there is **no API to read them back**
+  yet — that's Phase 11 (Error Query / Dashboard API).
+- `os` and `metadata` exist as columns in the database but are always `null`
+  — the current SDK contract has no data for either (no user-agent parsing,
+  no `metadata` field on `CapturedEvent`). They're reserved, not derived or
+  faked.
 - CORS is a single global allowlist (env var), not per-project yet.
 - No rate limiting yet (planned for Phase 13 hardening).
 - The SDK's outbound `fetch` doesn't explicitly set `credentials: "omit"` (a
-  pre-existing minor discrepancy noted, not introduced, by this phase).
+  pre-existing minor discrepancy noted, not introduced, by Phase 7).
 
 See `docs/API_EXAMPLES.md` for runnable curl examples and local setup steps.

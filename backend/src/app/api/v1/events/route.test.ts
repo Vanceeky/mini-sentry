@@ -11,7 +11,12 @@ const sampleEvent = {
   url: "https://example.com/",
 };
 
-async function freshRoute(project: AuthenticatedProject | null) {
+const defaultPersisted = { groupId: "grp_1", eventId: "dbevt_1", occurrenceCount: 1 };
+
+async function freshRoute(
+  project: AuthenticatedProject | null,
+  persistEventMock: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(defaultPersisted),
+) {
   vi.resetModules();
   vi.doMock("@/lib/apiKey", async () => {
     const actual = await vi.importActual<typeof import("@/lib/apiKey")>("@/lib/apiKey");
@@ -20,6 +25,7 @@ async function freshRoute(project: AuthenticatedProject | null) {
       findProjectByApiKey: vi.fn().mockResolvedValue(project),
     };
   });
+  vi.doMock("@/lib/persistEvent", () => ({ persistEvent: persistEventMock }));
   return import("./route");
 }
 
@@ -47,6 +53,7 @@ describe("POST /api/v1/events", () => {
     process.env.CORS_ALLOWED_ORIGINS = originalEnv;
     vi.restoreAllMocks();
     vi.doUnmock("@/lib/apiKey");
+    vi.doUnmock("@/lib/persistEvent");
   });
 
   it("returns 401 UNAUTHORIZED when the Authorization header is missing", async () => {
@@ -104,7 +111,32 @@ describe("POST /api/v1/events", () => {
     const { POST } = await freshRoute({ id: "proj_1", name: "Test" });
     const response = await POST(postRequest(sampleEvent, { auth: "Bearer good-key" }));
     expect(response.status).toBe(200);
+    // eventId is still the client-supplied id, echoed — not the DB row id —
+    // so Phase 8 doesn't change the wire contract established in Phase 7.
     expect((await response.json()) as unknown).toEqual({ success: true, eventId: "evt_abc-123" });
+  });
+
+  it("calls persistEvent with the project id and normalized event on success", async () => {
+    const persistEventMock = vi.fn().mockResolvedValue(defaultPersisted);
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test" }, persistEventMock);
+    await POST(postRequest(sampleEvent, { auth: "Bearer good-key" }));
+
+    expect(persistEventMock).toHaveBeenCalledTimes(1);
+    const [projectId, event] = persistEventMock.mock.calls[0];
+    expect(projectId).toBe("proj_1");
+    expect(event).toMatchObject({ id: "abc-123", type: "error", message: "boom" });
+  });
+
+  it("returns 500 INTERNAL_ERROR (never leaking the underlying error) when persistence fails", async () => {
+    const persistEventMock = vi.fn().mockRejectedValue(new Error("connection refused: password=hunter2"));
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test" }, persistEventMock);
+    const response = await POST(postRequest(sampleEvent, { auth: "Bearer good-key" }));
+
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(body.error.message).not.toContain("hunter2");
+    expect(body.error.message).toBe("An internal error occurred. Please try again later.");
   });
 
   it("attaches CORS headers for an allowed origin", async () => {

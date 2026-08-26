@@ -73,6 +73,24 @@ curl -s -X POST "$BASE_URL/api/v1/events" \
 { "success": true, "eventId": "evt_evt_def456" }
 ```
 
+## Grouping in action
+
+Sending the same `type`+`message` (and `request.method`+`request.url` for
+`"http"` events) twice creates one `ErrorGroup` whose `occurrenceCount`
+increments, not two separate groups:
+
+```bash
+curl -s -X POST "$BASE_URL/api/v1/events" -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"id":"evt_g1","type":"error","message":"Repeated error","url":"https://example.com/","timestamp":"2026-08-26T10:32:00.000Z","environment":"browser","browser":{"userAgent":"test"}}'
+
+curl -s -X POST "$BASE_URL/api/v1/events" -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"id":"evt_g2","type":"error","message":"Repeated error","url":"https://example.com/","timestamp":"2026-08-26T10:33:00.000Z","environment":"browser","browser":{"userAgent":"test"}}'
+```
+
+Both return `200 {"success":true,...}`. There's no API yet to inspect the
+resulting group/occurrence count directly (Phase 11) — for now, check via
+`npm run db:studio -w backend` or `psql` against the local dev database.
+
 ## Error — missing Authorization header
 
 ```bash

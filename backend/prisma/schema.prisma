@@ -7,10 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Phase 7 scope: just enough to validate an API key against a real project.
-// Phase 8 will add the full data model (error_groups, error_events) and may
-// extend this model — but the fields below are additive-only from here on,
-// since the seed data / dev API key / tests all depend on this exact shape.
+// Phase 7 fields kept additive-only, per that phase's note — the seed data /
+// dev API key / existing tests all depend on this exact shape.
 model Project {
   id         String   @id @default(cuid())
   name       String
@@ -18,5 +16,64 @@ model Project {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  errorGroups ErrorGroup[]
+  errorEvents ErrorEvent[]
+
   @@map("projects")
+}
+
+// One row per distinct fingerprint within a project — see
+// lib/fingerprint.ts for how the fingerprint is derived. `message` holds the
+// *first* occurrence's message as a representative label (not updated on
+// later occurrences), matching how Phase 11's error list/detail API is
+// expected to show a stable title per group.
+model ErrorGroup {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fingerprint     String
+  type            String
+  message         String
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  occurrenceCount Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  events ErrorEvent[]
+
+  @@unique([projectId, fingerprint])
+  @@index([projectId])
+  @@index([fingerprint])
+  @@map("error_groups")
+}
+
+// One row per ingested event, always attached to a group. Mirrors
+// CapturedEvent's fields; `os` and `metadata` are reserved columns the
+// current SDK contract has no data for yet (see DECISIONS.md) — always null
+// today, not derived or faked.
+model ErrorEvent {
+  id          String     @id @default(cuid())
+  projectId   String
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  groupId     String
+  group       ErrorGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  type        String
+  message     String
+  stack       String?
+  url         String
+  method      String?
+  statusCode  Int?
+  timestamp   DateTime
+  browser     String
+  os          String?
+  environment String
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+
+  @@index([projectId])
+  @@index([groupId])
+  @@index([createdAt])
+  @@index([timestamp])
+  @@map("error_events")
 }
