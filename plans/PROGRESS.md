@@ -636,6 +636,7 @@ POST /api/v1/events)"
   allowlist, no rate limiting yet, and the SDK's `fetch` call still doesn't
   explicitly set `credentials: "omit"`.
 
-**Commit:** _pending_
+**Commit:** `af7928f` — "Phase 8: database & event persistence
+(error_groups/error_events, grouping)"
 
 **Next phase:** Phase 9 — Backend: Authentication API (register/login/logout/me).
