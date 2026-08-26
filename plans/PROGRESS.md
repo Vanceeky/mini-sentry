@@ -871,6 +871,7 @@ API-key issuance/rotation).
 - Same carry-over limitations as Phases 7–9: no rate limiting yet, no
   password reset, no multi-session logout.
 
-**Commit:** _pending_
+**Commit:** `ef49467` — "Phase 10: project management API (CRUD, IDOR-safe,
+API-key rotation)"
 
 **Next phase:** Phase 11 — Backend: Error Query / Dashboard API.
