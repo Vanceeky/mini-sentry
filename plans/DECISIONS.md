@@ -319,14 +319,91 @@ re-litigate them without cause.
   deleting a project also removes its groups and events, avoiding orphaned rows. No
   soft-delete/archival was asked for.
 
+## Phase 9
+
+- **Bearer session tokens, not cookies**: the brief said "use a secure session/
+  token strategy appropriate for the existing architecture... do not invent an
+  insecure custom mechanism," without mandating cookies. This API serves a web
+  landing/onboarding app, a web dashboard, *and* a native mobile app — cookies
+  work naturally for the two web clients but are awkward for a mobile HTTP
+  client, and would need `Access-Control-Allow-Credentials`/`SameSite`
+  decisions that add real complexity for no benefit here. Reusing the exact
+  `Authorization: Bearer <token>` shape already established for project API
+  keys (Phase 7) means one consistent auth mechanism across the whole API
+  surface, works identically for every client type, and needed zero new CORS
+  behavior. Trade-off, accepted: no CSRF surface (there's nothing here for a
+  browser to auto-attach), but also no `HttpOnly` protection — wherever the
+  frontend chooses to store the token (memory, `localStorage`, secure native
+  storage) determines its exposure to XSS. That storage choice belongs to the
+  frontend teams building against this API, not to this backend.
+- **DB-backed sessions, not JWT**: a `sessions` table (hashed token -> user,
+  with `expiresAt`) was chosen over a signed/stateless JWT specifically so
+  `POST /auth/logout` can *actually* invalidate a token immediately. A
+  stateless JWT can't be revoked without a blocklist — which is a second
+  stateful store achieving the same thing a sessions table already does, just
+  with more moving parts. This project already has Postgres for everything
+  else; a sessions table is the boring, predictable choice, not a JWT-signing-
+  secret-rotation problem.
+- **Session tokens hashed the same way as API keys (unsalted SHA-256)**: same
+  rationale as Phase 7's `apiKeyHash` — a random 32-byte token is high-entropy,
+  not a low-entropy user secret, so a plain digest is sufficient. Refactored
+  the hashing logic into a shared `lib/hash.ts` (`sha256Hex()`) used by both,
+  instead of duplicating the same three lines in two files.
+- **Passwords hashed with Node's built-in `scrypt` (`node:crypto`), not
+  bcrypt/argon2**: avoids a new dependency (no native bindings to compile,
+  keeps the "minimal dependencies" ethos this project already follows for the
+  SDK) while still being a deliberately slow, salted KDF appropriate for
+  low-entropy user secrets — unlike the token hashing above. Random 16-byte
+  salt per password, stored as `"<saltHex>:<derivedKeyHex>"`;
+  `verifyPassword()` uses `timingSafeEqual` for the comparison itself.
+- **Timing-attack mitigation on login**: an early return on "no user found"
+  would make a request for an unregistered email measurably faster than one
+  for a registered email with a wrong password (no scrypt computation run) —
+  a real, well-known user-enumeration side channel. Login always calls
+  `verifyPassword()`, falling back to a precomputed `DUMMY_PASSWORD_HASH` when
+  no user matches, so both cases run the same expensive computation and
+  return the identical `401 INVALID_CREDENTIALS` response either way.
+- **Register does not auto-login**: the brief's own acceptance-criteria flow
+  lists them as separate steps ("Register -> Login -> Receive authenticated
+  session..."). Followed literally — `/register`'s response never includes a
+  session token; a client must call `/login` next. Simpler, and matches what
+  was actually specified rather than adding an implicit convenience nobody
+  asked for.
+- **Logout is idempotent on an unrecognized token, not on a missing header**:
+  a token that's already expired/logged-out/never-existed still gets
+  `200 {success:true}` from `/auth/logout` — the end state a caller cares
+  about ("this token no longer grants access") is identical whether or not
+  anything was actually deleted. A **missing** `Authorization` header is a
+  different situation (the caller isn't even attempting to identify a
+  session) and still gets `401 UNAUTHORIZED`, consistent with every other
+  authenticated endpoint in this API.
+- **No password reset flow**: the brief explicitly made this conditional
+  ("implement only if it can be done safely and simply"). A real reset flow
+  needs a way to actually deliver a reset link/code out-of-band (email, SMS),
+  which this backend has no mechanism for — building "half" of password reset
+  (generate a token, no way to deliver it) would be exactly the kind of fake/
+  placeholder functionality the project guardrails prohibit. Left out
+  entirely and documented as a known limitation rather than stubbed.
+- **`PAYLOAD_TOO_LARGE()`/`METHOD_NOT_ALLOWED()` generalized to take an
+  optional parameter**: Phase 7 hardcoded the events-endpoint's 32 KiB limit
+  and "POST" into these error factories. Auth endpoints need a different byte
+  limit (4 KiB) and, for `/auth/me`, a different allowed method ("GET"). Both
+  factories now default to the original Phase 7 values when called with no
+  argument, so `events/route.ts` didn't need to change at all — purely
+  additive.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
   explicitly allows deferring XHR if it adds substantial complexity. Revisit if a real
   host app needs it.
 - An API to read back persisted events/groups (Errors query/Dashboard API),
-  authentication, project/API-key management, notifications, and final hardening
-  (Phases 9–13): explicitly out of scope until instructed, one phase at a time.
+  project/API-key management, notifications, and final hardening
+  (Phases 10–13): explicitly out of scope until instructed, one phase at a time.
+- Password reset: explicitly optional per the brief; deferred since this
+  backend has no email/SMS delivery mechanism to build it safely (see Phase 9).
+- "Log out everywhere" / multi-session management: only single-token logout
+  exists; deferred until a real multi-device use case asks for it.
 - Per-project CORS origin allowlisting: deferred to Phase 10 (see Phase 7 above).
 - Rate limiting on `/api/v1/events`: deferred to Phase 13 (hardening).
 - Stack-frame-based (rather than message-based) error grouping: not attempted — the

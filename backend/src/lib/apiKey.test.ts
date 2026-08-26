@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { extractBearerToken, hashApiKey } from "./apiKey";
+import { hashApiKey } from "./apiKey";
+
+// extractBearerToken's own tests live in bearer.test.ts (its canonical
+// module) — apiKey.ts only re-exports it for backward-compatible imports.
 
 describe("hashApiKey", () => {
   it("is deterministic for the same input", () => {
@@ -12,28 +15,6 @@ describe("hashApiKey", () => {
 
   it("never returns the raw key", () => {
     expect(hashApiKey("mnst_test_123")).not.toBe("mnst_test_123");
-  });
-});
-
-describe("extractBearerToken", () => {
-  it("extracts the token from a well-formed Bearer header", () => {
-    expect(extractBearerToken("Bearer abc123")).toBe("abc123");
-  });
-
-  it("is case-insensitive on the scheme", () => {
-    expect(extractBearerToken("bearer abc123")).toBe("abc123");
-  });
-
-  it("returns null when the header is missing", () => {
-    expect(extractBearerToken(null)).toBeNull();
-  });
-
-  it("returns null when the header doesn't use the Bearer scheme", () => {
-    expect(extractBearerToken("Basic abc123")).toBeNull();
-  });
-
-  it("returns null for an empty token", () => {
-    expect(extractBearerToken("Bearer ")).toBeNull();
   });
 });
 

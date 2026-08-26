@@ -1,12 +1,14 @@
-import { createHash } from "node:crypto";
 import { prisma } from "./db";
+import { sha256Hex } from "./hash";
+
+export { extractBearerToken } from "./bearer";
 
 /**
  * API keys are high-entropy random tokens (not low-entropy passwords), so a
  * plain unsalted SHA-256 digest is sufficient — never store the raw key.
  */
 export function hashApiKey(rawKey: string): string {
-  return createHash("sha256").update(rawKey, "utf8").digest("hex");
+  return sha256Hex(rawKey);
 }
 
 export interface AuthenticatedProject {
@@ -20,13 +22,4 @@ export async function findProjectByApiKey(rawKey: string): Promise<Authenticated
     select: { id: true, name: true },
   });
   return project;
-}
-
-const BEARER_PATTERN = /^Bearer\s+(.+)$/i;
-
-/** Extracts the raw token from an `Authorization: Bearer <token>` header, or null. */
-export function extractBearerToken(authorizationHeader: string | null): string | null {
-  if (!authorizationHeader) return null;
-  const match = BEARER_PATTERN.exec(authorizationHeader.trim());
-  return match ? match[1].trim() || null : null;
 }

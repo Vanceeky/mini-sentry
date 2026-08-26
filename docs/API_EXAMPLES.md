@@ -29,6 +29,74 @@ export API_KEY="mnst_dev_local_0000000000000000000000000000"
 export BASE_URL="http://localhost:3000"
 ```
 
+## Authentication flow
+
+Register, log in, call an authenticated endpoint, then log out:
+
+```bash
+curl -s -X POST "$BASE_URL/api/v1/auth/register" -H "Content-Type: application/json" \
+  -d '{"name":"Ada Lovelace","email":"ada@example.com","password":"correcthorsebattery"}'
+```
+
+```json
+{ "success": true, "user": { "id": "usr_...", "name": "Ada Lovelace", "email": "ada@example.com", "createdAt": "..." } }
+```
+
+```bash
+LOGIN=$(curl -s -X POST "$BASE_URL/api/v1/auth/login" -H "Content-Type: application/json" \
+  -d '{"email":"ada@example.com","password":"correcthorsebattery"}')
+echo "$LOGIN"
+TOKEN=$(echo "$LOGIN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+```
+
+```json
+{ "success": true, "token": "<opaque token>", "user": { "id": "usr_...", "name": "Ada Lovelace", "email": "ada@example.com" } }
+```
+
+```bash
+curl -s "$BASE_URL/api/v1/auth/me" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{ "success": true, "user": { "id": "usr_...", "name": "Ada Lovelace", "email": "ada@example.com" } }
+```
+
+```bash
+curl -s -X POST "$BASE_URL/api/v1/auth/logout" -H "Authorization: Bearer $TOKEN"
+# {"success":true}
+
+# The same token no longer works:
+curl -s -w "\nstatus: %{http_code}\n" "$BASE_URL/api/v1/auth/me" -H "Authorization: Bearer $TOKEN"
+# {"success":false,"error":{"code":"INVALID_SESSION",...}}
+# status: 401
+```
+
+## Error — duplicate registration
+
+```bash
+curl -s -X POST "$BASE_URL/api/v1/auth/register" -H "Content-Type: application/json" \
+  -d '{"name":"Ada Lovelace","email":"ada@example.com","password":"correcthorsebattery"}'
+```
+
+```json
+{ "success": false, "error": { "code": "EMAIL_ALREADY_REGISTERED", "message": "An account with this email already exists." } }
+```
+
+Status: `409`.
+
+## Error — wrong login credentials
+
+```bash
+curl -s -X POST "$BASE_URL/api/v1/auth/login" -H "Content-Type: application/json" \
+  -d '{"email":"ada@example.com","password":"wrong-password"}'
+```
+
+```json
+{ "success": false, "error": { "code": "INVALID_CREDENTIALS", "message": "Email or password is incorrect." } }
+```
+
+Status: `401`. An unknown email produces the exact same response — see `docs/API.md`.
+
 ## Success — `error` event
 
 ```bash

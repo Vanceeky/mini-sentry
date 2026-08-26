@@ -640,3 +640,119 @@ POST /api/v1/events)"
 (error_groups/error_events, grouping)"
 
 **Next phase:** Phase 9 — Backend: Authentication API (register/login/logout/me).
+
+## Phase 9 — Backend: Authentication API
+
+**Status:** Complete
+
+**What was built:**
+- `backend/prisma/schema.prisma` gained `User` (`id`, `name`, `email` unique,
+  `passwordHash`, timestamps) and `Session` (`id`, `userId` FK cascade,
+  `tokenHash` unique, `expiresAt`, `createdAt`). Migration
+  `20260826032744_add_users_and_sessions`, committed.
+- `backend/src/lib/password.ts` — `hashPassword()`/`verifyPassword()` using
+  Node's built-in `scrypt` (no new dependency) with a random salt per
+  password, stored as `"<saltHex>:<derivedKeyHex>"`; `verifyPassword()` uses
+  `timingSafeEqual`. `DUMMY_PASSWORD_HASH` — a precomputed hash of a fixed
+  placeholder — lets login always run one scrypt computation even when no
+  account matches the given email, so response timing can't reveal whether
+  an email is registered.
+- `backend/src/lib/session.ts` — `createSession(userId)` (random 32-byte
+  token, returned raw exactly once; only its SHA-256 hash is stored, plus a
+  30-day `expiresAt`), `findUserBySessionToken(rawToken)` (hash lookup +
+  expiry check), `deleteSessionByToken(rawToken)` (idempotent `deleteMany`).
+- `backend/src/lib/authSchema.ts` — zod schemas for register (`name`, `email`,
+  `password`, 8–200 chars) and login (`email`, `password`, no minimum length
+  — login shouldn't leak the registration password policy via a different
+  error).
+- Small refactor for reuse: `extractBearerToken()` moved to a new
+  `backend/src/lib/bearer.ts` (used by both project-API-key auth and
+  session auth); `apiKey.ts` re-exports it for backward compatibility.
+  `backend/src/lib/hash.ts`'s `sha256Hex()` is now the single place both
+  `hashApiKey()` and session-token hashing call.
+- Four new routes under `backend/src/app/api/v1/auth/`:
+  - `POST /register` — creates a `User` (hashed password), returns a safe
+    representation (`id`/`name`/`email`/`createdAt`, never the password/hash).
+    Does **not** auto-login.
+  - `POST /login` — verifies credentials (wrong email and wrong password both
+    produce the identical `401 INVALID_CREDENTIALS`, deliberately, to avoid
+    user enumeration), creates a session, returns `{token, user}`.
+  - `GET /me` — resolves the bearer session token, returns `{id, name, email}`.
+  - `POST /logout` — deletes the session by token hash; idempotent (a
+    missing header is still `401 UNAUTHORIZED`, but an unrecognized/expired
+    token still returns `200 {success:true}`).
+  - All four export `OPTIONS` (CORS preflight) and 405 handlers for
+    unsupported methods, matching the events route's established pattern.
+- `errors.ts` gained `VALIDATION_ERROR`, `EMAIL_ALREADY_REGISTERED`,
+  `INVALID_CREDENTIALS`, `INVALID_SESSION`; `PAYLOAD_TOO_LARGE()` and
+  `METHOD_NOT_ALLOWED()` now take an optional parameter (max bytes / allowed
+  method) instead of hardcoding the events-endpoint-specific defaults, so the
+  same factories serve both event ingestion and auth. `UNAUTHORIZED()`'s
+  message generalized from "Bearer \<apiKey\>" to "Bearer \<token\>" (still
+  correct for events, now also correct for session auth).
+- `constants.ts` gained `MAX_AUTH_PAYLOAD_BYTES` (4 KiB — auth bodies are
+  tiny), `NAME_MAX_LEN`, `EMAIL_MAX_LEN`, `PASSWORD_MIN_LEN`/`MAX_LEN`,
+  `SESSION_TTL_MS` (30 days).
+- `docs/API.md` restructured: a new top-level Authentication section
+  explaining the two independent bearer-token namespaces (project API key vs
+  user session), a full Authentication API section (all 4 endpoints), CORS
+  promoted to a top-level section (it now applies to every endpoint, not just
+  events), and Known Limitations merged/updated for Phases 7–9.
+  `docs/API_EXAMPLES.md` gained a full register->login->me->logout->me(fails)
+  curl walkthrough plus duplicate-registration and wrong-credentials examples.
+
+**Tests performed:**
+- `npm run typecheck` / `npm run build` — clean across all three workspaces;
+  `next build` lists all 4 new routes (`/api/v1/auth/{register,login,logout,me}`)
+  alongside the existing `/api/v1/events`.
+- `find sdk/dist -iname '*.test.*'` / `find backend/.next -iname '*.test.*'` — both empty.
+- `npm run test` (no `DATABASE_URL`): backend now 109 passed + 6 skipped
+  across 19 files (25 new test files/cases: `bearer.test.ts` (moved from
+  `apiKey.test.ts`), `hash.test.ts`, `password.test.ts` (determinism of
+  salting, correct/incorrect verification, malformed-stored-value handling,
+  the dummy hash itself verifies), `session.test.ts` (mocked-Prisma create/
+  find/delete, expiry handling), `authSchema.test.ts` (every validation
+  case), and route tests for all 4 endpoints — auth failures, validation
+  failures, duplicate email, CORS headers, unsupported methods, and (for
+  register/login) asserting the response body never contains the raw
+  password and the DB write always receives a hash, never plaintext.
+- **With `DATABASE_URL` set**: 115 passed, 0 skipped — the 3 DB-gated
+  integration suites all ran, including a new
+  `auth/flow.integration.test.ts` that drives the actual route handlers
+  (not mocks) through the full acceptance-criteria flow — register, login,
+  `/me`, logout, `/me` again (confirms `401 INVALID_SESSION`) — plus a
+  duplicate-registration-returns-409 case, both against a real Postgres.
+- **Live end-to-end verification** via curl against a running backend +
+  Postgres: registered a real account, confirmed the exact
+  `409 EMAIL_ALREADY_REGISTERED` on a repeat, `400 VALIDATION_ERROR` for a
+  malformed email, `401 INVALID_CREDENTIALS` for a wrong password, then the
+  full login -> `/me` (200) -> `/me` with no header (401 UNAUTHORIZED) ->
+  `/me` with a bogus token (401 INVALID_SESSION) -> logout (200) -> `/me`
+  with the now-logged-out token (401 INVALID_SESSION) -> logout again (200,
+  idempotent) sequence, plus a CORS preflight on `/auth/login`. Every status
+  code and response body matched `docs/API.md` exactly. Cleaned up the test
+  user and tore down the dev server/Postgres container afterward.
+
+**Known limitations:**
+- **No password reset flow** — the original brief made this optional
+  ("implement only if it can be done safely and simply"); it needs an email
+  delivery mechanism this backend doesn't have, so it was left out rather
+  than half-built with no way to actually deliver a reset link.
+- **No "log out everywhere" / session listing** — only the exact token
+  presented to `/auth/logout` is invalidated; a user with multiple active
+  sessions (e.g. web + mobile) can't revoke the others without their tokens.
+- **No rate limiting on `/auth/login`** — deferred to Phase 13 along with the
+  rest of the API's rate limiting; brute-force protection would normally live
+  here specifically.
+- **No browser tool was available in this session** (same as Phases 7–8) —
+  live verification used curl end-to-end rather than a real browser or
+  mobile client.
+- Same carry-over limitations as Phases 7–8: CORS is a global (not
+  per-project) allowlist, and the SDK's `fetch` call still doesn't
+  explicitly set `credentials: "omit"` (irrelevant to auth endpoints, which
+  never use cookies at all).
+
+**Commit:** _pending_
+
+**Next phase:** Phase 10 — Backend: Project Management API (projects,
+API-key issuance/rotation).

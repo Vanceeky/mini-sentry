@@ -30,7 +30,7 @@ repository state (not assumed from a prior session).
 | 6 | SDK polish — bundle size, privacy/perf review, README | Complete |
 | 7 | Backend: Event Ingestion API (`POST /api/v1/events`, Next.js + Prisma + PostgreSQL) | Complete |
 | 8 | Backend: Database & Event Persistence (full `error_groups`/`error_events` schema, grouping) | Complete |
-| 9 | Backend: Authentication API (register/login/logout/me) | Not started |
+| 9 | Backend: Authentication API (register/login/logout/me) | Complete |
 | 10 | Backend: Project Management API (projects, API-key issuance/rotation) | Not started |
 | 11 | Backend: Error Query / Dashboard API (list/detail/stats, used by web dashboard + mobile) | Not started |
 | 12 | Backend: Realtime/Notification foundation (device registration, notification service abstraction) | Not started |

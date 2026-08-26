@@ -77,3 +77,36 @@ model ErrorEvent {
   @@index([timestamp])
   @@map("error_events")
 }
+
+// A developer account (landing/onboarding, dashboard, mobile login) —
+// distinct from Project, which represents an app being monitored, not a
+// person. passwordHash is salted scrypt (see lib/password.ts), never the
+// project-API-key-style unsalted hash used elsewhere in this schema.
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions Session[]
+
+  @@map("users")
+}
+
+// One row per active login. tokenHash is unsalted SHA-256 of a random
+// 32-byte token (same rationale as Project.apiKeyHash — high-entropy,
+// nothing to salt against). The raw token is returned to the client exactly
+// once, at login, and never stored.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}

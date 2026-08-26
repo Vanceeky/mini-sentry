@@ -14,3 +14,13 @@ export const REQUEST_METHOD_MAX_LEN = 16;
 export const ID_MAX_LEN = 200;
 
 export const TRUNCATION_SUFFIX = "…[truncated]";
+
+/** Auth endpoints (register/login/logout/me) — bodies are tiny, so a much smaller cap. */
+export const MAX_AUTH_PAYLOAD_BYTES = 4 * 1024; // 4 KiB
+export const NAME_MAX_LEN = 200;
+export const EMAIL_MAX_LEN = 320; // RFC 5321 max mailbox length
+export const PASSWORD_MIN_LEN = 8;
+export const PASSWORD_MAX_LEN = 200; // bounds scrypt cost on attacker-supplied input
+
+/** Session tokens are opaque bearer tokens, valid for this long after login. */
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days

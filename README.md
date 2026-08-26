@@ -64,9 +64,13 @@ to, backed by a new `backend/` Next.js workspace and PostgreSQL via Prisma.
 
 Phase 8 complete: events are now persisted and grouped (`Project -> ErrorGroup ->
 ErrorEvent`, fingerprint-based) — there's still no API to read them back yet (that's
-Phase 11). See `plans/PROJECT_PLAN.md` for the full phase table and
+Phase 11).
+
+Phase 9 complete: authentication (`register`/`login`/`logout`/`me`), bearer session
+tokens (`Authorization: Bearer <token>`, same shape as project API keys), salted
+password hashing. See `plans/PROJECT_PLAN.md` for the full phase table and
 `plans/PROGRESS.md` for what was actually built and tested.
 
-Phases 9–13 (authentication, project management, the error-query/dashboard API,
-notifications, and final hardening) are intentionally out of scope until explicitly
-instructed, one phase at a time — see `plans/PROJECT_PLAN.md`.
+Phases 10–13 (project management, the error-query/dashboard API, notifications, and
+final hardening) are intentionally out of scope until explicitly instructed, one
+phase at a time — see `plans/PROJECT_PLAN.md`.

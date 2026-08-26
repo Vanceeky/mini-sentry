@@ -22,10 +22,10 @@ This project is built one phase at a time against `plans/PROJECT_PLAN.md`.
 Read these before assuming what exists — check `plans/PROGRESS.md`'s latest phase
 before recommending or building on something that "should" be there.
 
-Phases 7–8 (event ingestion API, full DB persistence/error grouping) are complete.
-Phases 9–13 (auth, project/API-key management, the error-query/dashboard API,
-notifications, final hardening) are **explicitly out of scope** until the user asks
-for them — don't start scaffolding for them proactively. Never build dashboard/
+Phases 7–9 (event ingestion API, full DB persistence/error grouping, authentication)
+are complete. Phases 10–13 (project/API-key management, the error-query/dashboard
+API, notifications, final hardening) are **explicitly out of scope** until the user
+asks for them — don't start scaffolding for them proactively. Never build dashboard/
 mobile/landing UI in this repo — backend/API only.
 
 ## Commands (run from repo root; workspaces: `sdk`, `demo`, `backend`)
@@ -84,6 +84,18 @@ mobile/landing UI in this repo — backend/API only.
 - **Reserved-but-unpopulated columns** (`ErrorEvent.os`/`.metadata`): fine to add a
   column ahead of having real data for it, as long as it's explicitly documented as
   reserved/`null` (in `docs/API.md` and `PROGRESS.md`) rather than silently faked.
+- **Two independent bearer-token namespaces**: project API keys (`lib/apiKey.ts`,
+  events ingestion) and user session tokens (`lib/session.ts`, everything else) both
+  use `Authorization: Bearer <token>` and unsalted `sha256Hex()` (`lib/hash.ts`)
+  hashing — but are looked up in different tables and never interchangeable.
+  `lib/bearer.ts`'s `extractBearerToken()` is shared by both. Passwords are hashed
+  differently (`lib/password.ts`, salted `scrypt`) — never reuse token hashing for a
+  user-chosen secret.
+- **Auth error codes**: `VALIDATION_ERROR` (bad request shape, auth endpoints) is
+  separate from `INVALID_EVENT` (events endpoint) even though both are `400` —
+  keep endpoint-family-specific error codes distinct rather than reusing one across
+  unrelated concerns. `INVALID_CREDENTIALS` (login) and `INVALID_SESSION`
+  (unknown/expired token) are also distinct from `INVALID_API_KEY`.
 - **`agentRules: false`** is set in `backend/next.config.mjs` — Next.js 16 otherwise
   auto-generates its own `AGENTS.md`/`CLAUDE.md` inside `backend/` on every dev/build
   run, which would collide confusingly with this repo's own hand-authored root
