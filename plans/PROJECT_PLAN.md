@@ -32,7 +32,7 @@ repository state (not assumed from a prior session).
 | 8 | Backend: Database & Event Persistence (full `error_groups`/`error_events` schema, grouping) | Complete |
 | 9 | Backend: Authentication API (register/login/logout/me) | Complete |
 | 10 | Backend: Project Management API (projects, API-key issuance/rotation) | Complete |
-| 11 | Backend: Error Query / Dashboard API (list/detail/stats, used by web dashboard + mobile) | Not started |
+| 11 | Backend: Error Query / Dashboard API (list/detail/stats, used by web dashboard + mobile) | Complete |
 | 12 | Backend: Realtime/Notification foundation (device registration, notification service abstraction) | Not started |
 | 13 | Backend: API Hardening & Handoff (docs, integration tests, security review) | Not started |
 

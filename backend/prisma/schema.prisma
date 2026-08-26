@@ -35,10 +35,17 @@ model Project {
 }
 
 // One row per distinct fingerprint within a project — see
-// lib/fingerprint.ts for how the fingerprint is derived. `message` holds the
-// *first* occurrence's message as a representative label (not updated on
-// later occurrences), matching how Phase 11's error list/detail API is
-// expected to show a stable title per group.
+// lib/fingerprint.ts for how the fingerprint is derived. `message`/`type`/
+// `endpoint`/`statusCode`/`environment` all hold the *first* occurrence's
+// values as a representative label (not updated on later occurrences) —
+// matches Phase 11's error list/detail API, which needs a stable summary
+// row per group without joining to an event on every list query.
+// `endpoint`/`statusCode` are null for non-"http" groups (see lib/persistEvent.ts).
+// `environment` is nullable only for backward compatibility with any group
+// rows that predate this Phase 11 column (same rationale as Project's
+// nullable Phase 10 fields) — every group persistEvent.ts creates from here
+// on always sets it (currently always "browser", per the SDK's fixed
+// literal — see DECISIONS.md, Phase 2).
 model ErrorGroup {
   id              String   @id @default(cuid())
   projectId       String
@@ -46,6 +53,9 @@ model ErrorGroup {
   fingerprint     String
   type            String
   message         String
+  endpoint        String?
+  statusCode      Int?
+  environment     String?
   firstSeenAt     DateTime @default(now())
   lastSeenAt      DateTime @default(now())
   occurrenceCount Int      @default(0)

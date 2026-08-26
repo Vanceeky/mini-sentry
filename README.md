@@ -73,9 +73,12 @@ password hashing.
 Phase 10 complete: project management (`GET`/`POST /api/v1/projects`,
 `GET`/`PATCH`/`DELETE /api/v1/projects/:projectId`, API-key rotation) — projects are
 now owned by a user, with every endpoint IDOR-safe (a project belonging to another
-user 404s, never 403s). See `plans/PROJECT_PLAN.md` for the full phase table and
-`plans/PROGRESS.md` for what was actually built and tested.
+user 404s, never 403s).
 
-Phases 11–13 (the error-query/dashboard API, notifications, and final hardening)
-are intentionally out of scope until explicitly instructed, one phase at a time —
-see `plans/PROJECT_PLAN.md`.
+Phase 11 complete: the error query / dashboard API (`GET /api/v1/projects/:id/errors`,
+`.../errors/:groupId`, `.../events`, `.../stats`) — the same endpoints serve both
+the web dashboard and the mobile app, no duplicates. See `plans/PROJECT_PLAN.md` for
+the full phase table and `plans/PROGRESS.md` for what was actually built and tested.
+
+Phases 12–13 (notifications and final hardening) are intentionally out of scope
+until explicitly instructed, one phase at a time — see `plans/PROJECT_PLAN.md`.

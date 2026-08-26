@@ -211,9 +211,78 @@ curl -s -X POST "$BASE_URL/api/v1/events" -H "Authorization: Bearer $API_KEY" -H
   -d '{"id":"evt_g2","type":"error","message":"Repeated error","url":"https://example.com/","timestamp":"2026-08-26T10:33:00.000Z","environment":"browser","browser":{"userAgent":"test"}}'
 ```
 
-Both return `200 {"success":true,...}`. There's no API yet to inspect the
-resulting group/occurrence count directly (Phase 11) — for now, check via
-`npm run db:studio -w backend` or `psql` against the local dev database.
+Both return `200 {"success":true,...}`. See the next section for how to
+query the resulting group/occurrence count back over the API.
+
+## Dashboard queries
+
+Continuing with `$TOKEN` and `$PROJECT_ID` from the project management flow
+above. First ingest a few events with the project's key so there's something
+to query:
+
+```bash
+for i in 1 2 3; do
+curl -s -o /dev/null -X POST "$BASE_URL/api/v1/events" -H "Authorization: Bearer $PROJECT_API_KEY" -H "Content-Type: application/json" \
+  -d "{\"id\":\"evt_h$i\",\"type\":\"http\",\"message\":\"HTTP 500 Internal Server Error\",\"url\":\"https://example.com/\",\"timestamp\":\"2026-08-26T12:0${i}:00.000Z\",\"environment\":\"browser\",\"browser\":{\"userAgent\":\"test\"},\"request\":{\"url\":\"/api/users\",\"method\":\"GET\",\"statusCode\":500}}"
+done
+```
+
+```bash
+# List error groups (auth is the USER'S session token, not the project API key):
+curl -s "$BASE_URL/api/v1/projects/$PROJECT_ID/errors" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{
+  "success": true,
+  "data": [{ "id": "grp_...", "message": "HTTP 500 Internal Server Error", "type": "http", "endpoint": "GET /api/users", "statusCode": 500, "occurrenceCount": 3, "firstSeenAt": "...", "lastSeenAt": "..." }],
+  "pagination": { "page": 1, "limit": 20, "total": 1 }
+}
+```
+
+```bash
+# Filter/search/sort:
+curl -s "$BASE_URL/api/v1/projects/$PROJECT_ID/errors?type=http&sort=occurrences" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE_URL/api/v1/projects/$PROJECT_ID/errors?search=500" -H "Authorization: Bearer $TOKEN"
+
+# Error group detail (paginated occurrences) — grab an id from the list above:
+GROUP_ID=$(curl -s "$BASE_URL/api/v1/projects/$PROJECT_ID/errors" -H "Authorization: Bearer $TOKEN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])')
+curl -s "$BASE_URL/api/v1/projects/$PROJECT_ID/errors/$GROUP_ID" -H "Authorization: Bearer $TOKEN"
+
+# Raw (ungrouped) event list:
+curl -s "$BASE_URL/api/v1/projects/$PROJECT_ID/events" -H "Authorization: Bearer $TOKEN"
+
+# Project-wide stats:
+curl -s "$BASE_URL/api/v1/projects/$PROJECT_ID/stats" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{ "success": true, "errors": 1, "events": 3, "lastErrorAt": "2026-08-26T12:03:00.000Z", "activeGroups": 1 }
+```
+
+## Error — invalid query parameter
+
+```bash
+curl -s -w "\nstatus: %{http_code}\n" "$BASE_URL/api/v1/projects/$PROJECT_ID/errors?limit=9999" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{ "success": false, "error": { "code": "VALIDATION_ERROR", "message": "limit: Number must be less than or equal to 100" } }
+```
+
+Status: `400` — invalid pagination/filter values are rejected, never silently clamped.
+
+## Error — unknown error group id
+
+```bash
+curl -s -w "\nstatus: %{http_code}\n" "$BASE_URL/api/v1/projects/$PROJECT_ID/errors/not-a-real-group" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{ "success": false, "error": { "code": "ERROR_GROUP_NOT_FOUND", "message": "No error group with this id exists in this project." } }
+```
+
+Status: `404`.
 
 ## Error — missing Authorization header
 

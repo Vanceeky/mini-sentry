@@ -450,14 +450,78 @@ re-litigate them without cause.
   that mocks a rejection with a typed error class alongside
   `vi.resetModules()`.
 
+## Phase 11
+
+- **`endpoint`/`statusCode`/`environment` denormalized onto `ErrorGroup`,
+  captured once at group creation**: the list endpoint needs to show these
+  per group without a join/subquery on every list request, and Phase 8
+  already established the precedent (`message`/`type` are first-occurrence
+  representative values, not recomputed). Extending that same pattern to
+  three more fields is consistent, not a new design; the trade-off (a group
+  summary can go stale if, say, an endpoint's URL shape changes over time) is
+  identical to the one already accepted and documented for `message` in
+  Phase 8.
+- **Group detail's `stack` comes from the most recent occurrence, not the
+  first**: unlike the group-summary fields above (deliberately first-
+  occurrence, for a stable title), a developer opening an error's detail
+  view wants to see what it looks like *now* — the most recent stack is more
+  actionable for current debugging than the historical first one. This is
+  fetched independently of whichever `occurrences` page was requested, so
+  paging through history never changes what "the current stack" shows.
+- **`type=` filter values match this contract's real enum (`error`/
+  `unhandledrejection`/`http`), not the brief's illustrative `"network"`**:
+  the brief's own example used `?type=network`, but the SDK's actual
+  `CapturedEventType` (established in Phase 2/3) has never had a `"network"`
+  value — network failures are `"http"` events (with an absent
+  `statusCode`). Matching the brief's illustrative value over the SDK's real
+  contract would mean either lying about what the API accepts or silently
+  accepting a value that matches nothing; using the real enum is what "the
+  exact contract may change based on the existing codebase" (the brief's own
+  words) calls for.
+- **`activeGroups` = groups with an occurrence in the last 24 hours**: the
+  brief's stats example listed `activeGroups` without defining "active." 24
+  hours is a simple, common, and — importantly — *documented* choice (in
+  `constants.ts`, `docs/API.md`, and here) rather than an undocumented magic
+  number; a real product would likely make this configurable, but nothing in
+  the brief asked for that.
+- **`errors`/`events` in stats are all-time totals, not windowed**: only
+  `activeGroups` is time-windowed; `errors` (distinct groups) and `events`
+  (total occurrences) count everything the project has ever received. This
+  reading was chosen because pairing an already-windowed `activeGroups`
+  alongside an *also*-windowed `errors` would make the two numbers redundant
+  (a subset relationship the brief's example doesn't suggest) — the more
+  useful pairing is "everything, ever" vs. "what's currently active."
+- **`GET /api/v1/projects/:projectId/errors/:errorGroupId`'s "group not found
+  in this project" is `404 ERROR_GROUP_NOT_FOUND`, a new code distinct from
+  `PROJECT_NOT_FOUND`**: the project itself is already confirmed owned by
+  this point (that check happens first and returns `PROJECT_NOT_FOUND` on its
+  own if it fails) — a *different* 404 for "the project's real, the group
+  inside it isn't" gives a caller a genuinely different, actionable signal
+  rather than conflating two different failure reasons under one code.
+- **Query-param validation errors reject, never silently clamp**: an invalid
+  `limit=9999` is a `400 VALIDATION_ERROR`, not silently capped to 100 —
+  consistent with every other validated input in this API (auth/project
+  bodies also reject rather than coerce out-of-range values). A caller
+  should know its request didn't mean what it thought, not get a silently
+  different result.
+- **No mobile-specific duplicate endpoints**: the brief explicitly asked for
+  this ("mobile app should use the same APIs... do NOT create mobile-specific
+  duplicate endpoints unless absolutely necessary"). Nothing about these four
+  endpoints is web-specific (no HTML, no session cookies, plain JSON over
+  bearer auth) — there was no reason mobile would need anything different.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
   explicitly allows deferring XHR if it adds substantial complexity. Revisit if a real
   host app needs it.
-- An API to read back persisted events/groups (Errors query/Dashboard API),
-  notifications, and final hardening (Phases 11–13): explicitly out of scope
+- Notifications and final hardening (Phases 12–13): explicitly out of scope
   until instructed, one phase at a time.
+- Full-text/fuzzy search on error messages, or search across `stack`/`url`:
+  today's `search` is a plain case-insensitive substring match on `message`
+  only (Phase 11). Revisit if that stops being enough at real data scale.
+- Configurable "active" window for `activeGroups` (currently a fixed 24h,
+  Phase 11): no per-request override exists.
 - Password reset: explicitly optional per the brief; deferred since this
   backend has no email/SMS delivery mechanism to build it safely (see Phase 9).
 - "Log out everywhere" / multi-session management: only single-token logout

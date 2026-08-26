@@ -22,12 +22,11 @@ This project is built one phase at a time against `plans/PROJECT_PLAN.md`.
 Read these before assuming what exists — check `plans/PROGRESS.md`'s latest phase
 before recommending or building on something that "should" be there.
 
-Phases 7–10 (event ingestion API, full DB persistence/error grouping,
-authentication, project/API-key management) are complete. Phases 11–13
-(error-query/dashboard API, notifications, final hardening) are **explicitly out of
-scope** until the user asks for them — don't start scaffolding for them
-proactively. Never build dashboard/mobile/landing UI in this repo — backend/API
-only.
+Phases 7–11 (event ingestion API, full DB persistence/error grouping,
+authentication, project/API-key management, error-query/dashboard API) are complete.
+Phases 12–13 (notifications, final hardening) are **explicitly out of scope** until
+the user asks for them — don't start scaffolding for them proactively. Never build
+dashboard/mobile/landing UI in this repo — backend/API only.
 
 ## Commands (run from repo root; workspaces: `sdk`, `demo`, `backend`)
 
@@ -110,6 +109,18 @@ only.
   needs to reject with a typed error class, import that class fresh *inside* the
   post-reset setup, not at the test file's top level. See `projects/route.test.ts`'s
   `freshRoute()` for the pattern.
+- **Representative group fields, captured once**: `ErrorGroup.message`/`.type`/
+  `.endpoint`/`.statusCode`/`.environment` are all set on the group's `create`
+  branch only (`lib/persistEvent.ts`), never on `update` — a stable summary per
+  group, not live-recomputed. Follow this pattern for any new group-summary field;
+  don't add one that needs to reflect the *latest* occurrence (for that, query
+  `ErrorEvent` directly, the way group detail's `stack` does — see
+  `lib/errorQuery.ts`'s `getErrorGroupDetail()`).
+- **`parseQueryOrThrow()`** (`lib/errorQuerySchema.ts`) is the shared pattern for
+  validating a route's query string against a zod schema — throws
+  `400 VALIDATION_ERROR` on failure, matching the request-body validation pattern
+  used elsewhere. Reuse it for any new list/filter endpoint instead of hand-rolling
+  the parse-and-check-issues block again.
 - **`agentRules: false`** is set in `backend/next.config.mjs` — Next.js 16 otherwise
   auto-generates its own `AGENTS.md`/`CLAUDE.md` inside `backend/` on every dev/build
   run, which would collide confusingly with this repo's own hand-authored root

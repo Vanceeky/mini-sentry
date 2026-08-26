@@ -32,6 +32,12 @@ export async function persistEvent(projectId: string, event: CapturedEventInput)
         fingerprint,
         type: event.type,
         message: event.message,
+        // Representative values from the first occurrence — see the
+        // schema's doc comment. Not updated on later occurrences, same as
+        // `message`/`type`.
+        endpoint: event.request ? `${event.request.method} ${event.request.url}` : null,
+        statusCode: event.request?.statusCode ?? null,
+        environment: event.environment,
         firstSeenAt: now,
         lastSeenAt: now,
         occurrenceCount: 1,

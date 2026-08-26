@@ -27,3 +27,14 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 /** Project management endpoints — bodies are tiny (just a name), same cap as auth. */
 export const MAX_PROJECT_PAYLOAD_BYTES = 4 * 1024; // 4 KiB
+
+/** Pagination defaults shared by every list endpoint (errors, occurrences, events). */
+export const DEFAULT_PAGE_LIMIT = 20;
+export const MAX_PAGE_LIMIT = 100;
+
+/**
+ * A group counts as "active" for stats purposes if it's had an occurrence
+ * within this window. An arbitrary but documented definition — not derived
+ * from the brief, which didn't define "active" — see DECISIONS.md.
+ */
+export const ACTIVE_GROUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours

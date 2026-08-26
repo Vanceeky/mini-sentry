@@ -875,3 +875,115 @@ API-key issuance/rotation).
 API-key rotation)"
 
 **Next phase:** Phase 11 — Backend: Error Query / Dashboard API.
+
+## Phase 11 — Backend: Error Query / Dashboard API
+
+**Status:** Complete
+
+**What was built:**
+- `ErrorGroup` gained three nullable, first-occurrence-representative columns:
+  `endpoint` (`"<METHOD> <url>"`, only for `"http"` groups), `statusCode`,
+  `environment`. Populated in `lib/persistEvent.ts`'s group-`create` branch
+  only (never on `update`), following the exact same pattern `message`/`type`
+  already established in Phase 8. Migration
+  `20260826035149_add_error_group_summary_fields`. All three nullable for the
+  same backward-compatibility reason as every prior phase's additive schema
+  change (no risky NOT NULL backfill on rows that predate the column).
+- `backend/src/lib/errorQuerySchema.ts` — zod schemas for all three list
+  endpoints' query params (`page`/`limit` with shared defaults and a 100 max;
+  `search`/`type`/`status`/`environment`/`sort` for the errors list),
+  `parseQueryOrThrow()` (converts a `Request`'s search params, validates,
+  throws `400 VALIDATION_ERROR` with the specific issue on failure — reused
+  by every route below instead of hand-rolling the same try/catch four times).
+- `backend/src/lib/errorQuery.ts` — `listErrorGroups`, `getErrorGroupDetail`,
+  `listProjectEvents`, `getProjectStats`. Every query is scoped to
+  `projectId` (already confirmed owned by the route before these run — see
+  below); `getErrorGroupDetail` additionally scopes to `{ id: groupId,
+  projectId }` in the same query, and returns the **most recent**
+  occurrence's `stack` as the group's representative stack (independent of
+  whichever occurrences page was requested) — "what does this look like
+  right now," not tied to pagination.
+- Four new routes, all requiring a **user session token** (never a project
+  API key) and reusing Phase 10's `findOwnedProject()` ownership check before
+  touching any error data:
+  - `GET /api/v1/projects/:projectId/errors` — paginated group list with
+    `search`/`type`/`status`/`environment` filters and `sort`
+    (`lastSeen`/`firstSeen`/`occurrences`).
+  - `GET /api/v1/projects/:projectId/errors/:errorGroupId` — group detail +
+    paginated occurrences. A group id that doesn't exist *in this project*
+    (project itself confirmed owned) is a new, distinct
+    `404 ERROR_GROUP_NOT_FOUND` — separate from `PROJECT_NOT_FOUND`.
+  - `GET /api/v1/projects/:projectId/events` — flat, ungrouped, most-recent-
+    first raw event list with an optional `type` filter.
+  - `GET /api/v1/projects/:projectId/stats` — `{errors, events, lastErrorAt,
+    activeGroups}`, matching the brief's example shape exactly.
+- `errors.ts` gained `ERROR_GROUP_NOT_FOUND` (404). `constants.ts` gained
+  `DEFAULT_PAGE_LIMIT`/`MAX_PAGE_LIMIT` (shared by all three list endpoints)
+  and `ACTIVE_GROUP_WINDOW_MS` (24h — this backend's own documented
+  definition of "active," since the brief didn't specify one).
+- `docs/API.md` gained the full Error Query / Dashboard API section (all 4
+  endpoints, the shared pagination shape, the `stats` field-by-field table).
+  `docs/API_EXAMPLES.md` gained a full dashboard-queries walkthrough plus
+  invalid-query-param and unknown-group-id examples.
+
+**Tests performed:**
+- `npm run typecheck` / `npm run build` — clean across all three workspaces;
+  `next build` lists all 4 new routes alongside the existing 9.
+- `find sdk/dist -iname '*.test.*'` / `find backend/.next -iname '*.test.*'` — both empty.
+- `npm run test` (no `DATABASE_URL`): backend now 196 passed + 8 skipped
+  across 28 files. New: `errorQuerySchema.test.ts` (defaults, coercion,
+  every rejection case, including the brief's illustrative `"network"` type
+  value correctly being rejected since this contract's real value is
+  `"http"`), `errorQuery.test.ts` (every lib function against a mocked
+  Prisma — filter/sort construction, pagination math, the
+  most-recent-stack-independent-of-requested-page behavior, `activeGroups`
+  windowing), and route tests for all 4 endpoints (auth failures, not-owned
+  project -> 404, unknown group -> 404, query-param passthrough, validation
+  failures, unsupported methods). Also extended `persistEvent.test.ts` for
+  the new group `endpoint`/`statusCode`/`environment` fields.
+- **With `DATABASE_URL` set**: 211 passed, 0 skipped — a new
+  `dashboard.integration.test.ts` drives the real route handlers (register
+  -> login -> create project -> ingest 3 identical `"http"` events + 1
+  distinct JS error via the real `/api/v1/events` route) through every one
+  of the 4 new endpoints against real Postgres: confirms exactly 2 groups
+  with the http group's `occurrenceCount:3`/`endpoint`/`statusCode` correct,
+  `type`/`search` filters work, group detail returns exactly 3 paginated
+  occurrences, an unknown group id 404s, the raw event list totals 4, stats
+  match (`errors:2, events:4, activeGroups:2`), and — critically — a second
+  real user gets `404 PROJECT_NOT_FOUND` from all three project-level
+  endpoints (errors/stats/events), not the data.
+- **Live end-to-end verification** against a running backend + Postgres,
+  matching the brief's own example response shapes byte-for-byte: created a
+  project, ingested 3x the same `"http"` error + 1 distinct JS error via
+  curl, then confirmed via curl: the errors list showed exactly 2 groups
+  (occurrenceCount 3 and 1), `?type=http` and `?search=undefined` filtered
+  correctly, group detail showed 3 occurrences with `stack: null` (correct —
+  `"http"` events never have one), the unknown-group-id case returned
+  `404 ERROR_GROUP_NOT_FOUND`, the raw events list totaled 4, and `stats`
+  returned exactly `{errors:2, events:4, activeGroups:2, lastErrorAt:...}` —
+  the same shape as the brief's own illustrative example. Registered a
+  second real user and confirmed all three project-level dashboard endpoints
+  correctly 404 for them. Cleaned up the test project/user and tore down the
+  dev server/Postgres container afterward.
+
+**Known limitations:**
+- **Message-based grouping, first-occurrence-representative group fields**
+  (carried over from Phase 8, now more visible): `endpoint`/`statusCode`/
+  `environment` on a group are captured once and never updated — if an
+  endpoint's URL pattern legitimately changes over time, old and new
+  occurrences won't merge into the same group's summary.
+- **`search` is a plain case-insensitive substring match on `message`** — no
+  fuzzy matching, no search across `stack`/`url`, no full-text index. Fine at
+  this data scale; revisit if it doesn't stay fine.
+- **"Active" (`activeGroups`) is a 24-hour window** — an arbitrary, not
+  brief-specified, but documented default. No way to customize it per
+  request.
+- **No browser tool was available in this session** (same as Phases 7–10) —
+  live verification used curl end-to-end.
+- Same carry-over limitations as Phases 7–10: CORS is global (not
+  per-project), no rate limiting, no password reset, no multi-session logout,
+  immediate/unconditional API-key rotation and project deletion.
+
+**Commit:** _pending_
+
+**Next phase:** Phase 12 — Backend: Realtime/Notification Foundation.

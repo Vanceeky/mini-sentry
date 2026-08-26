@@ -41,7 +41,15 @@ describe("persistEvent", () => {
     expect(tx.errorGroup.upsert).toHaveBeenCalledTimes(1);
     const upsertArgs = tx.errorGroup.upsert.mock.calls[0][0];
     expect(upsertArgs.where.projectId_fingerprint.projectId).toBe("proj_1");
-    expect(upsertArgs.create).toMatchObject({ projectId: "proj_1", type: "error", message: "boom", occurrenceCount: 1 });
+    expect(upsertArgs.create).toMatchObject({
+      projectId: "proj_1",
+      type: "error",
+      message: "boom",
+      environment: "browser",
+      endpoint: null,
+      statusCode: null,
+      occurrenceCount: 1,
+    });
     expect(upsertArgs.update).toMatchObject({ occurrenceCount: { increment: 1 } });
 
     expect(tx.errorEvent.create).toHaveBeenCalledTimes(1);
@@ -76,6 +84,10 @@ describe("persistEvent", () => {
     const createArgs = tx.errorEvent.create.mock.calls[0][0];
     expect(createArgs.data.method).toBe("GET");
     expect(createArgs.data.statusCode).toBe(500);
+
+    const groupCreateArgs = tx.errorGroup.upsert.mock.calls[0][0].create;
+    expect(groupCreateArgs.endpoint).toBe("GET /api/users");
+    expect(groupCreateArgs.statusCode).toBe(500);
   });
 
   it("leaves method/statusCode undefined for non-http events", async () => {

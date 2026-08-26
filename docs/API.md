@@ -9,10 +9,9 @@ those frontends need to read backend source code to integrate.
 - **Format:** JSON request/response bodies throughout
 
 This document currently covers **Phase 7 — Event Ingestion**, **Phase 8 —
-Database & Event Persistence**, **Phase 9 — Authentication**, and **Phase 10
-— Project Management**. Later phases will add an Errors query API, Stats,
-Devices, and Notifications sections here as they're built — **there is still
-no way to read ingested events back over the API** until Phase 11.
+Database & Event Persistence**, **Phase 9 — Authentication**, **Phase 10 —
+Project Management**, and **Phase 11 — Error Query / Dashboard API**. Later
+phases will add Devices and Notifications sections here as they're built.
 
 ## Authentication
 
@@ -56,8 +55,9 @@ cause is logged server-side only.
 | 401 | `INVALID_API_KEY` | The bearer token doesn't match any project |
 | 401 | `INVALID_CREDENTIALS` | (Login only) Email or password is incorrect — deliberately the same message/code either way, so a response can't be used to check whether an email is registered |
 | 401 | `INVALID_SESSION` | The bearer token doesn't match any active session (unknown, expired, or already logged out) |
+| 404 | `PROJECT_NOT_FOUND` | (Project-scoped endpoints) No project with this id is owned by the authenticated user — identical whether the id doesn't exist at all or belongs to someone else |
+| 404 | `ERROR_GROUP_NOT_FOUND` | (Error detail only) No error group with this id exists in the (already-confirmed-owned) project |
 | 405 | `METHOD_NOT_ALLOWED` | Any HTTP verb other than the endpoint's documented method/`OPTIONS` |
-| 404 | `PROJECT_NOT_FOUND` | (Project endpoints) No project with this id is owned by the authenticated user — identical whether the id doesn't exist at all or belongs to someone else |
 | 409 | `EMAIL_ALREADY_REGISTERED` | (Register only) An account with this email already exists |
 | 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds the endpoint's size limit (32 KiB for events, 4 KiB for auth/projects) |
 | 500 | `INTERNAL_ERROR` | Unexpected server failure — message is always generic |
@@ -237,15 +237,126 @@ gets one atomically at creation (`POST /api/v1/projects`), so a project
 either has a key from the moment it exists or doesn't exist yet; rotation
 covers every case after that.
 
+## Error Query / Dashboard API
+
+**Authentication:** every endpoint below requires a **user session token**,
+scoped to the authenticated user's own project — the same ownership check and
+`404 PROJECT_NOT_FOUND` behavior as the Project Management API. The web
+dashboard and the mobile app both consume these exact same endpoints; there
+are no mobile-specific duplicates.
+
+Every list endpoint returns the same pagination shape:
+
+```json
+"pagination": { "page": 1, "limit": 20, "total": 27 }
+```
+
+`page` defaults to 1, `limit` defaults to 20 (max 100) — invalid values
+(non-numeric, `limit` over 100, `page` under 1) are a `400 VALIDATION_ERROR`,
+not silently clamped.
+
+### `GET /api/v1/projects/:projectId/errors`
+
+Lists the project's error **groups** (not raw events).
+
+**Query params:** `page`, `limit`, `search` (case-insensitive substring match
+on `message`), `type` (`error` | `unhandledrejection` | `http` — note: this
+contract's SDK calls network failures `"http"`, not `"network"` as an
+earlier illustrative draft of this endpoint suggested), `status` (exact
+`statusCode` match, 100–599), `environment`, `sort` (`lastSeen` (default) |
+`firstSeen` | `occurrences`, always descending).
+
+**Success response** — `200 OK`:
+
+```json
+{
+  "success": true,
+  "data": [{ "id": "...", "message": "HTTP 500 Internal Server Error", "type": "http", "endpoint": "GET /api/users", "statusCode": 500, "occurrenceCount": 3, "firstSeenAt": "...", "lastSeenAt": "..." }],
+  "pagination": { "page": 1, "limit": 20, "total": 2 }
+}
+```
+
+`endpoint`/`statusCode` are `null` for non-`"http"` groups (a JS error has
+neither). Every field is captured from the group's **first** occurrence, not
+recomputed live — see `docs/API.md`'s Event Ingestion section and
+`plans/DECISIONS.md`.
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `GET /api/v1/projects/:projectId/errors/:errorGroupId`
+
+**Query params:** `page`, `limit` — paginate the group's occurrences; there
+is no way to fetch an unbounded occurrence list.
+
+**Success response** — `200 OK`:
+
+```json
+{
+  "success": true,
+  "group": { "id": "...", "message": "...", "type": "http", "endpoint": "GET /api/users", "statusCode": 500, "environment": "browser", "firstSeenAt": "...", "lastSeenAt": "...", "occurrenceCount": 3, "stack": null },
+  "occurrences": {
+    "data": [{ "id": "...", "timestamp": "...", "browser": "...", "url": "...", "method": "GET", "statusCode": 500 }],
+    "pagination": { "page": 1, "limit": 20, "total": 3 }
+  }
+}
+```
+
+`group.stack` comes from the **most recent** occurrence (not the first) —
+"what does this error look like right now" is what a developer debugging it
+actually wants; it's `null` for `"http"`/`"unhandledrejection"` events that
+never had one. `occurrences.data` is always ordered most-recent-first.
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `404 ERROR_GROUP_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `GET /api/v1/projects/:projectId/events`
+
+A flat, ungrouped list of the project's raw ingested events, most recent
+first — the "grouped" view is `/errors` above; this is the individual-event
+view.
+
+**Query params:** `page`, `limit`, `type` (optional filter).
+
+**Success response** — `200 OK`:
+
+```json
+{
+  "success": true,
+  "data": [{ "id": "...", "groupId": "...", "type": "http", "message": "...", "url": "...", "method": "GET", "statusCode": 500, "timestamp": "...", "browser": "...", "environment": "browser", "createdAt": "..." }],
+  "pagination": { "page": 1, "limit": 20, "total": 4 }
+}
+```
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `GET /api/v1/projects/:projectId/stats`
+
+Overview numbers for a dashboard's summary cards.
+
+**Success response** — `200 OK`:
+
+```json
+{ "success": true, "errors": 27, "events": 184, "lastErrorAt": "...", "activeGroups": 8 }
+```
+
+| Field | Meaning |
+|---|---|
+| `errors` | Total distinct error groups the project has ever had |
+| `events` | Total individual occurrences ever ingested |
+| `activeGroups` | Groups with at least one occurrence in the last 24 hours |
+| `lastErrorAt` | The most recent `lastSeenAt` across all groups (`null` if none yet) |
+
+"Active" (24 hours) is this backend's own definition, not dictated by any
+contract — a reasonable, documented default; see `plans/DECISIONS.md`.
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
 ## Event Ingestion
 
 ### `POST /api/v1/events`
 
-Accepts a single captured event from the SDK. As of Phase 8, events are
-validated, **persisted, and grouped** into a `Project -> ErrorGroup ->
-ErrorEvent` chain in PostgreSQL. There is no API to read this data back yet
-(that's Phase 11's Error Query / Dashboard API) — this endpoint remains
-write-only from a consumer's perspective.
+Accepts a single captured event from the SDK. Events are validated,
+**persisted, and grouped** into a `Project -> ErrorGroup -> ErrorEvent` chain
+in PostgreSQL — readable back via the Error Query / Dashboard API above.
 
 Events are grouped by a fingerprint derived from `type` + `message` (plus
 `request.method`+`request.url` for `"http"` events, since their `message` is
@@ -319,10 +430,8 @@ site's origin) is a natural extension for a future phase, now that Phase 10
 provides an authenticated API a dashboard could build that UI on top of —
 not implemented yet, see Known Limitations.
 
-## Known limitations (Phases 7–10)
+## Known limitations (Phases 7–11)
 
-- Events are persisted and grouped, but there is **no API to read them back**
-  yet — that's Phase 11 (Error Query / Dashboard API).
 - `os` and `metadata` exist as columns in the database but are always `null`
   — the current SDK contract has no data for either (no user-agent parsing,
   no `metadata` field on `CapturedEvent`). They're reserved, not derived or
@@ -345,6 +454,15 @@ not implemented yet, see Known Limitations.
   ("implement only if it can be done safely and simply"); it needs an email
   delivery mechanism this backend doesn't have yet, so it was left out rather
   than half-built.
+- **Error grouping is message-based, not stack-based** — two occurrences of
+  "the same bug" with a textually different message (e.g. one embedding a
+  dynamic id) form separate groups. `endpoint`/`statusCode`/`environment` on
+  a group are captured once, from the first occurrence, and never updated —
+  if an endpoint's URL pattern legitimately changes over time, old and new
+  occurrences won't merge. See `plans/DECISIONS.md` (Phase 8 and 11).
+- `GET /api/v1/projects/:projectId/errors`'s `search` is a plain
+  case-insensitive substring match on `message` — no fuzzy matching, no
+  search across `stack`/`url`, no full-text index.
 - The SDK's outbound `fetch` doesn't explicitly set `credentials: "omit"` (a
   pre-existing minor discrepancy noted, not introduced, by Phase 7).
 
