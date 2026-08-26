@@ -752,7 +752,8 @@ POST /api/v1/events)"
   explicitly set `credentials: "omit"` (irrelevant to auth endpoints, which
   never use cookies at all).
 
-**Commit:** _pending_
+**Commit:** `2c129c7` — "Phase 9: authentication API (register/login/logout/me,
+bearer sessions)"
 
 **Next phase:** Phase 10 — Backend: Project Management API (projects,
 API-key issuance/rotation).
