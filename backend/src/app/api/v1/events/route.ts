@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { extractBearerToken, findProjectByApiKey } from "@/lib/apiKey";
 import { resolveCorsHeaders } from "@/lib/cors";
-import { MAX_EVENT_PAYLOAD_BYTES } from "@/lib/constants";
+import { EVENT_RATE_LIMIT_MAX, EVENT_RATE_LIMIT_WINDOW_MS, MAX_EVENT_PAYLOAD_BYTES } from "@/lib/constants";
 import { ApiError, ERRORS, jsonError } from "@/lib/errors";
 import { capturedEventSchema, normalizeEvent } from "@/lib/eventSchema";
 import { notifyIfNeeded } from "@/lib/notify";
 import { persistEvent } from "@/lib/persistEvent";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 export async function OPTIONS(request: Request): Promise<NextResponse> {
   const cors = resolveCorsHeaders(request.headers.get("origin"));
@@ -47,6 +48,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       return jsonError(ERRORS.INVALID_API_KEY(), cors);
     }
 
+    // Keyed by project id — only a request with a real, already-validated
+    // API key consumes a bucket, so this can't be used to grow the
+    // in-memory rate-limit store with arbitrary garbage keys.
+    const rateLimit = checkRateLimit(`events:${project.id}`, EVENT_RATE_LIMIT_MAX, EVENT_RATE_LIMIT_WINDOW_MS);
+    if (!rateLimit.allowed) {
+      return jsonError(ERRORS.RATE_LIMITED(Math.ceil(rateLimit.retryAfterMs / 1000)), cors);
+    }
+
     const persisted = await persistEvent(project.id, event);
 
     // Deliberately excludes message/stack/url to avoid dumping arbitrary
@@ -77,18 +86,18 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 }
 
-export async function GET(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function GET(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }
 
-export async function PUT(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function PUT(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }
 
-export async function DELETE(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function DELETE(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }
 
-export async function PATCH(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function PATCH(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }

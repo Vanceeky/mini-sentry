@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LOGIN_RATE_LIMIT_MAX } from "@/lib/constants";
 
 async function freshRoute(opts: {
   findUnique?: ReturnType<typeof vi.fn>;
@@ -94,12 +95,39 @@ describe("POST /api/v1/auth/login", () => {
     );
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
   });
+
+  it("returns 429 RATE_LIMITED after exceeding the per-email attempt limit", async () => {
+    const { POST } = await freshRoute({ findUnique: vi.fn().mockResolvedValue(null) });
+
+    for (let i = 0; i < LOGIN_RATE_LIMIT_MAX; i++) {
+      const response = await POST(postRequest({ email: "flood@example.com", password: "x" }));
+      expect(response.status).toBe(401); // INVALID_CREDENTIALS — still under the limit
+    }
+
+    const limited = await POST(postRequest({ email: "flood@example.com", password: "x" }));
+    expect(limited.status).toBe(429);
+    const body = (await limited.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("RATE_LIMITED");
+    expect(limited.headers.get("Retry-After")).toBeTruthy();
+  });
+
+  it("rate-limits a different email independently", async () => {
+    const { POST } = await freshRoute({ findUnique: vi.fn().mockResolvedValue(null) });
+
+    for (let i = 0; i < LOGIN_RATE_LIMIT_MAX; i++) {
+      await POST(postRequest({ email: "flood2@example.com", password: "x" }));
+    }
+    await POST(postRequest({ email: "flood2@example.com", password: "x" })); // now limited
+
+    const response = await POST(postRequest({ email: "someone-else@example.com", password: "x" }));
+    expect(response.status).toBe(401); // not 429 — different key
+  });
 });
 
 describe("unsupported methods on /api/v1/auth/login", () => {
   it("GET returns 405 METHOD_NOT_ALLOWED", async () => {
     const { GET } = await freshRoute({});
-    const response = await GET();
+    const response = await GET(new Request("http://localhost:3000/api/v1/auth/login"));
     expect(response.status).toBe(405);
   });
 });

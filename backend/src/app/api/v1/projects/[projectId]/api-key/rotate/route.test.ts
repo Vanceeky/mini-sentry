@@ -63,7 +63,7 @@ describe("POST /api/v1/projects/:projectId/api-key/rotate", () => {
 describe("unsupported methods on rotate", () => {
   it("GET returns 405 METHOD_NOT_ALLOWED", async () => {
     const { GET } = await freshRoute();
-    const response = await GET();
+    const response = await GET(new Request("http://localhost:3000/api/v1/projects/proj_1/api-key/rotate"));
     expect(response.status).toBe(405);
   });
 });

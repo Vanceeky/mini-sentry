@@ -84,6 +84,6 @@ describe("GET /api/v1/projects/:projectId/errors/:errorGroupId", () => {
 describe("unsupported methods on /api/v1/projects/:projectId/errors/:errorGroupId", () => {
   it("POST returns 405 METHOD_NOT_ALLOWED", async () => {
     const { POST } = await freshRoute();
-    expect((await POST()).status).toBe(405);
+    expect((await POST(new Request("http://localhost:3000/api/v1/projects/proj_1/errors/grp_1"))).status).toBe(405);
   });
 });

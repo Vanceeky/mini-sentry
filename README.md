@@ -9,14 +9,16 @@ built phase by phase as an npm workspaces monorepo.
 sdk/      the SDK itself (@mini-sentry/sdk) — see sdk/README.md for API docs
 demo/     a minimal Vite + vanilla-TS app that exercises every SDK capability
 backend/  the REST API (@mini-sentry/backend) — Next.js + PostgreSQL/Prisma
-docs/     API.md (endpoint contract), API_EXAMPLES.md (curl walkthroughs)
+docs/     API.md (endpoint contract), API_EXAMPLES.md (curl walkthroughs),
+          FRONTEND_HANDOFF.md (integration guide for the three frontend teams)
 plans/    PROJECT_PLAN.md (scope/phasing), PROGRESS.md (what's verified, phase by
           phase), DECISIONS.md (reasoning behind non-obvious choices)
 ```
 
-The backend is being built for three separate frontend teams (a landing/onboarding
+The backend was built for three separate frontend teams (a landing/onboarding
 web app, a web dashboard, and a mobile app) working independently against the REST
-contract in `docs/API.md` — this repo does not build any of those UIs.
+contract in `docs/API.md` — this repo does not build any of those UIs. Start with
+`docs/FRONTEND_HANDOFF.md` if you're integrating one of them.
 
 ## Getting started
 
@@ -54,37 +56,24 @@ across all three workspaces).
 
 ## Status
 
-Phases 0–6 complete: repository foundation, SDK core (`init`/config), error capture
-(`window.onerror`/`unhandledrejection`), network error capture (`fetch`), local event
-transport, a floating notification UI, and an SDK polish pass (bundle size review,
-privacy scrubbing, defensive copies, README).
+**All 13 phases complete.** The SDK MVP (Phases 0–6): `init()`/config, error and
+network-failure capture, local event transport, a floating notification UI, bundle
+size/privacy review. The backend (Phases 7–13): event ingestion (`POST
+/api/v1/events`) with fingerprint-based grouping and persistence into
+PostgreSQL/Prisma; authentication (`register`/`login`/`logout`/`me`, bearer session
+tokens, salted password hashing); project management (`GET`/`POST /api/v1/projects`,
+`GET`/`PATCH`/`DELETE /api/v1/projects/:id`, API-key rotation), IDOR-safe throughout
+(another user's resource 404s, never 403s); the error query / dashboard API
+(`GET /api/v1/projects/:id/errors`, `.../errors/:groupId`, `.../events`,
+`.../stats`), shared identically by the web dashboard and the mobile app; device
+registration and a `NotificationService` abstraction (logged, not yet delivered — no
+real push provider is wired up); and API hardening (a real CORS bug found and fixed,
+rate limiting on login and event ingestion, a full security/consistency audit, and a
+literal end-to-end acceptance test).
 
-Phase 7 complete: the event ingestion API (`POST /api/v1/events`) that the SDK posts
-to, backed by a new `backend/` Next.js workspace and PostgreSQL via Prisma.
-
-Phase 8 complete: events are now persisted and grouped (`Project -> ErrorGroup ->
-ErrorEvent`, fingerprint-based) — there's still no API to read them back yet (that's
-Phase 11).
-
-Phase 9 complete: authentication (`register`/`login`/`logout`/`me`), bearer session
-tokens (`Authorization: Bearer <token>`, same shape as project API keys), salted
-password hashing.
-
-Phase 10 complete: project management (`GET`/`POST /api/v1/projects`,
-`GET`/`PATCH`/`DELETE /api/v1/projects/:projectId`, API-key rotation) — projects are
-now owned by a user, with every endpoint IDOR-safe (a project belonging to another
-user 404s, never 403s).
-
-Phase 11 complete: the error query / dashboard API (`GET /api/v1/projects/:id/errors`,
-`.../errors/:groupId`, `.../events`, `.../stats`) — the same endpoints serve both
-the web dashboard and the mobile app, no duplicates.
-
-Phase 12 complete: device registration (`POST`/`DELETE /api/v1/devices`) and a
-`NotificationService` abstraction — `POST /api/v1/events` now triggers at most one
-notification per event (new error / serious 5xx / reactivated error), currently
-logged rather than delivered (no real push provider is configured yet). See
-`plans/PROJECT_PLAN.md` for the full phase table and `plans/PROGRESS.md` for what
-was actually built and tested.
-
-Phase 13 (final hardening) is intentionally out of scope until explicitly
-instructed — see `plans/PROJECT_PLAN.md`.
+See `plans/PROJECT_PLAN.md` for the full phase table and Definition of Done,
+`plans/PROGRESS.md` for what was actually built/tested/verified in each phase, and
+`plans/DECISIONS.md` for the reasoning behind non-obvious choices — including known
+limitations tracked for future work (a real push provider, per-project CORS,
+password reset, Redis-backed rate limiting for multi-instance deployment, etc.),
+none of which are in progress.

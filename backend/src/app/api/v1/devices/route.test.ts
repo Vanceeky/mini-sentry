@@ -92,6 +92,6 @@ describe("POST /api/v1/devices", () => {
 describe("unsupported methods on /api/v1/devices", () => {
   it("GET returns 405 METHOD_NOT_ALLOWED", async () => {
     const { GET } = await freshRoute();
-    expect((await GET()).status).toBe(405);
+    expect((await GET(new Request("http://localhost:3000/api/v1/devices"))).status).toBe(405);
   });
 });

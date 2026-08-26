@@ -106,7 +106,7 @@ describe("POST /api/v1/auth/register", () => {
 describe("unsupported methods on /api/v1/auth/register", () => {
   it("GET returns 405 METHOD_NOT_ALLOWED", async () => {
     const { GET } = await freshRoute(vi.fn());
-    const response = await GET();
+    const response = await GET(new Request("http://localhost:3000/api/v1/auth/register"));
     expect(response.status).toBe(405);
   });
 });

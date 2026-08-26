@@ -61,9 +61,32 @@ describe("DELETE /api/v1/devices/:deviceId", () => {
 describe("unsupported methods on /api/v1/devices/:deviceId", () => {
   it("GET returns 405 METHOD_NOT_ALLOWED", async () => {
     const { GET } = await freshRoute();
-    const response = await GET();
+    const response = await GET(new Request("http://localhost:3000/api/v1/devices/dev_1"));
     expect(response.status).toBe(405);
     const body = (await response.json()) as { error: { message: string } };
     expect(body.error.message).toContain("DELETE");
+  });
+});
+
+describe("OPTIONS /api/v1/devices/:deviceId", () => {
+  const originalEnv = process.env.CORS_ALLOWED_ORIGINS;
+
+  beforeEach(() => {
+    process.env.CORS_ALLOWED_ORIGINS = "http://localhost:5173";
+  });
+
+  afterEach(() => {
+    process.env.CORS_ALLOWED_ORIGINS = originalEnv;
+  });
+
+  it("advertises DELETE (the real method), not just POST", async () => {
+    const { OPTIONS } = await freshRoute();
+    const request = new Request("http://localhost:3000/api/v1/devices/dev_1", {
+      method: "OPTIONS",
+      headers: { Origin: "http://localhost:5173" },
+    });
+    const response = await OPTIONS(request);
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Methods")).toBe("DELETE, OPTIONS");
   });
 });

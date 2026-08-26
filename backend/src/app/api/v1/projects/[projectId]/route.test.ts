@@ -126,7 +126,26 @@ describe("DELETE /api/v1/projects/:projectId", () => {
 describe("unsupported methods on /api/v1/projects/:projectId", () => {
   it("POST returns 405 METHOD_NOT_ALLOWED", async () => {
     const { POST } = await freshRoute();
-    const response = await POST();
+    const response = await POST(new Request("http://localhost:3000/api/v1/projects/proj_1"));
     expect(response.status).toBe(405);
+  });
+});
+
+describe("OPTIONS /api/v1/projects/:projectId", () => {
+  const originalEnv = process.env.CORS_ALLOWED_ORIGINS;
+
+  beforeEach(() => {
+    process.env.CORS_ALLOWED_ORIGINS = "http://localhost:5173";
+  });
+
+  afterEach(() => {
+    process.env.CORS_ALLOWED_ORIGINS = originalEnv;
+  });
+
+  it("advertises GET, PATCH, and DELETE (the real methods), not just POST", async () => {
+    const { OPTIONS } = await freshRoute();
+    const response = await OPTIONS(makeRequest("OPTIONS", undefined, { origin: "http://localhost:5173" }));
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Methods")).toBe("GET, PATCH, DELETE, OPTIONS");
   });
 });

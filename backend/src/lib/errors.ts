@@ -14,7 +14,8 @@ export type ErrorCode =
   | "INVALID_SESSION"
   | "PROJECT_NOT_FOUND"
   | "ERROR_GROUP_NOT_FOUND"
-  | "DEVICE_NOT_FOUND";
+  | "DEVICE_NOT_FOUND"
+  | "RATE_LIMITED";
 
 /**
  * Deliberately-thrown API errors. Anything else caught by the route
@@ -24,11 +25,14 @@ export type ErrorCode =
 export class ApiError extends Error {
   readonly code: ErrorCode;
   readonly status: number;
+  /** Set only for RATE_LIMITED — jsonError() turns this into a standard `Retry-After` header. */
+  readonly retryAfterSeconds?: number;
 
-  constructor(code: ErrorCode, status: number, message: string) {
+  constructor(code: ErrorCode, status: number, message: string, retryAfterSeconds?: number) {
     super(message);
     this.code = code;
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -60,13 +64,23 @@ export const ERRORS = {
   // Same IDOR-safe rationale as PROJECT_NOT_FOUND — identical whether the
   // device id doesn't exist or belongs to a different user.
   DEVICE_NOT_FOUND: () => new ApiError("DEVICE_NOT_FOUND", 404, "No device with this id is registered to the current user."),
+  RATE_LIMITED: (retryAfterSeconds: number) =>
+    new ApiError(
+      "RATE_LIMITED",
+      429,
+      `Too many requests. Try again in ${retryAfterSeconds} second(s).`,
+      retryAfterSeconds,
+    ),
   invalidEvent: (message: string) => new ApiError("INVALID_EVENT", 400, message),
   validationError: (message: string) => new ApiError("VALIDATION_ERROR", 400, message),
 };
 
 export function jsonError(err: ApiError, headers: Record<string, string> = {}): NextResponse {
+  const responseHeaders =
+    err.retryAfterSeconds !== undefined ? { ...headers, "Retry-After": String(err.retryAfterSeconds) } : headers;
+
   return NextResponse.json(
     { success: false, error: { code: err.code, message: err.message } },
-    { status: err.status, headers },
+    { status: err.status, headers: responseHeaders },
   );
 }

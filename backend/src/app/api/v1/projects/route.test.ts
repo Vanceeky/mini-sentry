@@ -113,3 +113,22 @@ describe("POST /api/v1/projects", () => {
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
   });
 });
+
+describe("OPTIONS /api/v1/projects", () => {
+  const originalEnv = process.env.CORS_ALLOWED_ORIGINS;
+
+  beforeEach(() => {
+    process.env.CORS_ALLOWED_ORIGINS = "http://localhost:5173";
+  });
+
+  afterEach(() => {
+    process.env.CORS_ALLOWED_ORIGINS = originalEnv;
+  });
+
+  it("advertises GET and POST (both real methods this route supports), not just POST", async () => {
+    const { OPTIONS } = await freshRoute();
+    const response = await OPTIONS(makeRequest("OPTIONS", undefined, { origin: "http://localhost:5173" }));
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Methods")).toBe("GET, POST, OPTIONS");
+  });
+});

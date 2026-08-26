@@ -8,13 +8,15 @@ interface RouteContext {
   params: Promise<{ deviceId: string }>;
 }
 
+const ALLOWED_METHODS = "DELETE, OPTIONS";
+
 export async function OPTIONS(request: Request): Promise<NextResponse> {
-  const cors = resolveCorsHeaders(request.headers.get("origin"));
+  const cors = resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS);
   return new NextResponse(null, { status: 204, headers: cors });
 }
 
 export async function DELETE(request: Request, { params }: RouteContext): Promise<NextResponse> {
-  const cors = resolveCorsHeaders(request.headers.get("origin"));
+  const cors = resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS);
 
   try {
     const user = await requireSessionUser(request);
@@ -35,18 +37,18 @@ export async function DELETE(request: Request, { params }: RouteContext): Promis
   }
 }
 
-export async function GET(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED("DELETE"));
+export async function GET(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED("DELETE"), resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS));
 }
 
-export async function POST(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED("DELETE"));
+export async function POST(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED("DELETE"), resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS));
 }
 
-export async function PUT(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED("DELETE"));
+export async function PUT(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED("DELETE"), resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS));
 }
 
-export async function PATCH(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED("DELETE"));
+export async function PATCH(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED("DELETE"), resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS));
 }

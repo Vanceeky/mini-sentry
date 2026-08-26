@@ -1109,3 +1109,134 @@ events, stats)"
 NotificationService)"
 
 **Next phase:** Phase 13 — Backend: API Hardening & Handoff.
+
+## Phase 13 — Backend: API Hardening & Handoff
+
+**Status:** Complete
+
+**What was built:**
+- **Security/consistency audit**: a fresh agent (no prior context, instructed
+  to actually read every route/lib file, not summarize expectations) audited
+  the whole backend against the brief's exact checklist — authentication
+  coverage, IDOR/authorization, secret leakage, payload/CORS/validation
+  consistency, DB indexes/FKs, N+1 queries, response-shape/status-code/
+  error-code consistency, and the "final security review" list (unauthorized
+  access, IDOR, exposed secrets, sensitive-data persistence, auth bypass, API
+  key leakage, excessive payloads, unsafe metadata, missing validation).
+  **Found one real, confirmed bug** (below) and one lower-severity
+  consistency gap; every other category was independently re-verified and
+  found already correct — reported explicitly as "no issues found," not
+  silently omitted.
+- **Fixed: `Access-Control-Allow-Methods` was hardcoded to `"POST, OPTIONS"`
+  for every route**, including GET/PATCH/DELETE-only ones — `lib/cors.ts`'s
+  `resolveCorsHeaders()` never took the route's real methods as input. This
+  would have silently blocked real browser preflight for `GET /api/v1/auth/me`,
+  `GET /api/v1/projects`, `PATCH`/`DELETE /api/v1/projects/:id`, all four
+  dashboard query endpoints, and `DELETE /api/v1/devices/:id` — exactly the
+  call pattern a real web dashboard makes. Fixed by adding an
+  `allowedMethods` parameter, threaded through all 14 route files from a
+  local `ALLOWED_METHODS` constant per route (matching that route's existing
+  `METHOD_NOT_ALLOWED(...)` string, so there's one source of truth). Verified
+  **live** via real `curl -X OPTIONS` preflight requests against 5
+  representative routes (GET-only, GET+POST, GET+PATCH+DELETE, DELETE-only,
+  and the unaffected POST-only case) — every one now correctly advertises its
+  real methods. Locked in with new regression tests on 4 routes asserting the
+  exact `Access-Control-Allow-Methods` value.
+- **Fixed: every `405 METHOD_NOT_ALLOWED` response was missing CORS
+  headers** — the stub handlers took no `request` parameter. Lower severity
+  (a disallowed method wouldn't have worked anyway) but inconsistent with
+  "CORS applies to every endpoint"; fixed alongside the primary CORS fix
+  across all 14 route files' unsupported-method handlers.
+- **Rate limiting** (the one genuinely new capability this phase adds, not
+  just a review — explicitly named in the brief under Event Ingestion
+  review, and flagged as deferred-to-Phase-13 in every prior phase's Known
+  Limitations): `backend/src/lib/rateLimit.ts`, a simple in-memory
+  fixed-window counter (`checkRateLimit(key, max, windowMs)`) with a
+  periodic sweep to bound unbounded key growth — no Redis, per the project's
+  "no unnecessary infrastructure" guardrail. Wired into `POST /api/v1/auth/login`
+  (10 attempts per email per 5 minutes) and `POST /api/v1/events` (100 events
+  per project per 60 seconds) — both keyed by an already-validated value
+  (normalized email, real project id) so an attacker can't grow the
+  in-memory store with arbitrary garbage keys. New `RATE_LIMITED` error code
+  (429), with `ApiError` gaining an optional `retryAfterSeconds` that
+  `jsonError()` turns into a standard `Retry-After` header automatically.
+- **`docs/API.md` reorganized** into the brief's exact requested section
+  order (Authentication / Projects / API Keys / Event Ingestion / Errors /
+  Stats / Devices / Notifications) — previously ordered by build phase. The
+  generic error-shape/codes table was renamed "Error Responses" to avoid
+  colliding with "Errors" as the brief's name for the error-query endpoint
+  category. New CORS and Rate Limiting reference sections; Known Limitations
+  updated for all 13 phases.
+- **`docs/FRONTEND_HANDOFF.md`** (new) — the 11-point sequential integration
+  guide the brief asked for by name: register, login, create a project,
+  obtain the SDK key, install/configure the SDK, how events reach the
+  backend, how the dashboard retrieves errors, how mobile retrieves errors
+  (same endpoints, no duplication), how mobile notifications work (including
+  the "logged not delivered" caveat), how to handle authentication (the
+  404-not-403 convention explained for a frontend audience), and how to
+  handle API errors (including `Retry-After`). Curl examples throughout,
+  cross-referencing `docs/API.md`/`docs/API_EXAMPLES.md` rather than
+  duplicating their content.
+- **`backend/src/app/api/v1/e2e.integration.test.ts`** (new) — the brief's
+  explicit literal flow as one canonical, readable test: Register -> Login ->
+  Create Project -> Receive API Key -> Send SDK Event (twice, to prove
+  grouping) -> Persist Event -> Group Event -> Query Error -> Query Stats,
+  plus a separate Mobile flow (Authenticate -> Get Projects -> Get Errors ->
+  Get Error Detail) that deliberately reuses the *identical* route handlers
+  as the main flow to prove there's no mobile-specific duplication, and
+  confirms a mobile user attempting to read another user's project data gets
+  `404 PROJECT_NOT_FOUND`. This exists alongside (not instead of) the
+  narrower phase-specific integration suites already in the repo.
+
+**Tests performed:**
+- `npm run typecheck` / `npm run build` — clean across all three workspaces;
+  `next build` lists all 14 routes.
+- `find sdk/dist -iname '*.test.*'` / `find backend/.next -iname '*.test.*'` — both empty.
+- `npm run test` (no `DATABASE_URL`): backend now 256 passed + 21 skipped
+  across 36 files (13 new: `rateLimit.test.ts` plus rate-limit cases added to
+  `login/route.test.ts` and `events/route.test.ts`; 4 new CORS-Allow-Methods
+  regression tests across `projects/route.test.ts`,
+  `projects/[projectId]/route.test.ts`, `auth/me/route.test.ts`, and
+  `devices/[deviceId]/route.test.ts`).
+- **With `DATABASE_URL` set**: 279 passed, 0 skipped — including the new
+  `e2e.integration.test.ts`'s two tests (main flow, mobile flow), both
+  driving real route handlers against real Postgres.
+- **Live end-to-end verification** against a running backend + Postgres:
+  - Confirmed the CORS fix via 5 real `curl -X OPTIONS` preflight requests —
+    `GET /api/v1/projects` now advertises `GET, POST, OPTIONS` (previously
+    only `POST, OPTIONS`), `PATCH /api/v1/projects/:id` advertises
+    `GET, PATCH, DELETE, OPTIONS`, `GET /api/v1/auth/me` advertises
+    `GET, OPTIONS`, `DELETE /api/v1/devices/:id` advertises
+    `DELETE, OPTIONS`, and the unaffected `POST /api/v1/events` still
+    correctly advertises `POST, OPTIONS`.
+  - Confirmed login rate limiting: 10 wrong-password attempts against the
+    same email all returned `401`, the 11th returned `429` with
+    `Retry-After: 300`.
+  - Confirmed event rate limiting: flooded `POST /api/v1/events` with the
+    seeded dev project's key — events 1–100 returned `200`, event 101
+    returned `429`. Cleaned up the flood-test rows afterward.
+
+**Known limitations:**
+- **Rate limiting is in-memory and per-process** — correct for this
+  project's single-instance deployment; a horizontally-scaled deployment
+  would need a shared store (Redis), not built here per the "no unnecessary
+  infrastructure" guardrail.
+- **Fixed-window rate limiting**, not sliding-window/token-bucket — can allow
+  up to ~2x the nominal limit across a window boundary in the worst case.
+  Acceptable for abuse prevention, not a hard guarantee.
+- **No browser tool was available in this session** (same as every prior
+  phase) — live verification used curl end-to-end, including for the CORS
+  preflight fix specifically (verified via the literal `OPTIONS` request/
+  response a browser would make, just not from an actual browser process).
+- All known limitations from Phases 7–12 still apply and are consolidated in
+  `docs/API.md`'s Known Limitations section (single source of truth from
+  here on, rather than repeated per-phase in this file).
+
+**Commit:** _pending_
+
+**Next phase:** none — Phases 0–13 are complete. The SDK MVP (0–6) and the
+full backend (7–13) are both done; see `plans/PROJECT_PLAN.md`'s Definition
+of Done sections for both. Future work (a real push provider, per-project
+CORS, password reset, etc.) is tracked in `plans/DECISIONS.md`'s Deferred
+section and `docs/API.md`'s Known Limitations, to be picked up only when
+explicitly instructed.

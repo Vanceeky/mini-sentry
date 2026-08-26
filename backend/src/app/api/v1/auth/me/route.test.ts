@@ -69,9 +69,22 @@ describe("GET /api/v1/auth/me", () => {
 describe("unsupported methods on /api/v1/auth/me", () => {
   it("POST returns 405 METHOD_NOT_ALLOWED", async () => {
     const { POST } = await freshRoute();
-    const response = await POST();
+    const response = await POST(new Request("http://localhost:3000/api/v1/auth/me"));
     expect(response.status).toBe(405);
     const body = (await response.json()) as { error: { message: string } };
     expect(body.error.message).toContain("GET");
+  });
+});
+
+describe("OPTIONS /api/v1/auth/me", () => {
+  beforeEach(() => {
+    process.env.CORS_ALLOWED_ORIGINS = "http://localhost:5173";
+  });
+
+  it("advertises GET (the real method), not just POST", async () => {
+    const { OPTIONS } = await freshRoute();
+    const response = await OPTIONS(makeRequest({ origin: "http://localhost:5173" }));
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Methods")).toBe("GET, OPTIONS");
   });
 });

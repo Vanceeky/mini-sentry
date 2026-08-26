@@ -574,14 +574,106 @@ re-litigate them without cause.
   than a second query, and `ownerId` was already a real (if sometimes null)
   column on `Project` since Phase 10.
 
+## Phase 13
+
+- **A real, confirmed bug was found and fixed**: an independent audit (a
+  fresh agent instructed to actually read every route/lib file against the
+  hardening checklist, not just summarize expectations) found that
+  `lib/cors.ts`'s `resolveCorsHeaders()` hardcoded
+  `Access-Control-Allow-Methods: "POST, OPTIONS"` for **every** route,
+  regardless of that route's real methods. This would have silently broken
+  real browser preflight for every GET/PATCH/DELETE endpoint the moment a
+  real dashboard tried to call them cross-origin — `GET /api/v1/auth/me`,
+  `GET /api/v1/projects`, `PATCH`/`DELETE /api/v1/projects/:id`, all four
+  dashboard query endpoints, and `DELETE /api/v1/devices/:id`. It also
+  directly contradicted `docs/API.md`'s own CORS section, which claimed the
+  header reflects "the endpoint's method + OPTIONS" — a claim that was false
+  against the actual code. Fixed by adding an `allowedMethods` parameter to
+  `resolveCorsHeaders()`, threaded through every route from a local
+  `ALLOWED_METHODS` constant (the same string already used in that route's
+  `METHOD_NOT_ALLOWED(...)` calls, so there's one source of truth per route,
+  not two that could drift). Verified live via real `OPTIONS` preflight
+  requests against every affected route (see `plans/PROGRESS.md`) and locked
+  in with new regression tests asserting the exact `Access-Control-Allow-
+  Methods` value per route shape (GET-only, GET+POST, GET+PATCH+DELETE,
+  DELETE-only). This is exactly the kind of finding "fix only real issues"
+  hardening is for — confirmed via live testing, not theoretical.
+- **A second, lower-severity finding was fixed for consistency**: every
+  `405 METHOD_NOT_ALLOWED` response was missing CORS headers entirely (the
+  stub handlers took no `request` parameter). Harmless on its own (a
+  disallowed method wouldn't have worked anyway), but inconsistent with "CORS
+  applies to every endpoint," and a one-line-per-handler fix — addressed
+  across every route alongside the primary fix above.
+- **Everything else the audit checked came back clean** — auth coverage,
+  hashing, secret-leakage-in-responses, IDOR/ownership scoping, payload size
+  checks, malformed-input handling, DB foreign keys/indexes, N+1 queries,
+  response-shape consistency, status-code consistency, error-code naming,
+  and unsafe-metadata acceptance were all independently re-verified and
+  found already correct — not re-litigated or "fixed" for the sake of
+  activity. See `plans/PROGRESS.md` for the full audit summary.
+- **Rate limiting: simple in-memory fixed-window, not Redis** — the brief's
+  own guardrails rule out introducing new infrastructure ("no
+  Redis/Kafka/queues"), and "rate limiting if simple enough" is explicitly
+  conditional. A module-level `Map` with a periodic sweep (`lib/rateLimit.ts`)
+  is genuinely simple, needs no new dependency, and is correct for this
+  project's single-process deployment — documented explicitly as *not*
+  correct for a horizontally-scaled multi-instance deployment (which would
+  need a shared store), rather than silently glossed over.
+- **Login rate-limited by email, events rate-limited by project id — never by
+  raw/unvalidated input**: keying by an attacker-controlled value with no
+  bound (e.g. the raw bearer token before validating it's real) would let an
+  attacker grow the in-memory store with arbitrary garbage keys — a
+  resource-exhaustion vector introduced by the mitigation itself. Login keys
+  on the already-zod-validated email (bounded by "syntactically valid
+  email-shaped strings," not arbitrary bytes); events keys on `project.id`,
+  computed only *after* the API key has already been validated against a
+  real project — so only requests that already passed authentication ever
+  consume a rate-limit bucket.
+- **Fixed-window, not sliding-window or token-bucket**: simpler to reason
+  about and implement (no per-request timestamp history), at the cost of
+  allowing up to ~2x the nominal limit across a window boundary in the worst
+  case. Acceptable for abuse *prevention* (this is not a billing-accuracy
+  system) — a real production deployment with stricter needs would use a
+  sliding window or token bucket, deliberately not built here per "keep it
+  simple."
+- **`docs/API.md` reorganized into the brief's exact requested section
+  order** (Authentication / Projects / API Keys / Event Ingestion / Errors /
+  Stats / Devices / Notifications) — previously organized by phase-build
+  order instead. Content was preserved verbatim where possible; only
+  structure and a few cross-references changed. The generic error-shape/
+  codes table was renamed from "Errors" to "Error Responses" to avoid
+  colliding with "Errors" as the brief's name for the error-query endpoint
+  category — two different things that happened to share a name.
+- **`docs/FRONTEND_HANDOFF.md` is a new, separate document from
+  `docs/API.md`**, not a duplicate — `API.md` is the field-by-field
+  reference (organized by resource), `FRONTEND_HANDOFF.md` is the
+  sequential "what do I actually do, in order" guide the brief explicitly
+  asked for (11 specific numbered points), aimed at a developer joining one
+  of the three frontend teams who hasn't read the reference doc yet.
+- **One comprehensive, literal end-to-end integration test was added**
+  (`e2e.integration.test.ts`) matching the brief's exact requested flow —
+  Register -> Login -> Create Project -> Receive API Key -> Send SDK Event ->
+  Persist Event -> Group Event -> Query Error -> Query Stats, plus a
+  separate Mobile flow (Authenticate -> Get Projects -> Get Errors -> Get
+  Error Detail) reusing the identical route handlers to prove there's no
+  mobile-specific duplication. This exists *alongside* the narrower,
+  phase-specific integration suites already in the repo (auth/flow,
+  projects/flow, dashboard, devices/flow) — not a replacement for them; it's
+  the single canonical "does the whole system work together" proof the
+  brief asked for by name, kept as one readable file rather than assembled
+  from cross-references.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
   explicitly allows deferring XHR if it adds substantial complexity. Revisit if a real
   host app needs it.
-- Final hardening (Phase 13): explicitly out of scope until instructed.
 - Real push provider integration (Expo Push, FCM): the `NotificationService`
   interface exists (Phase 12); no concrete provider is wired up.
+- Redis-backed (or otherwise multi-instance-correct) rate limiting: today's
+  in-memory limiter (Phase 13) only counts correctly within a single process.
+- Sliding-window/token-bucket rate limiting: today's fixed-window limiter
+  (Phase 13) allows up to ~2x the nominal limit across a window boundary.
 - `GET /api/v1/devices` (list a user's registered devices): not asked for in
   Phase 12's brief, deferred until a real consumer needs it.
 - Full-text/fuzzy search on error messages, or search across `stack`/`url`:

@@ -34,14 +34,15 @@ repository state (not assumed from a prior session).
 | 10 | Backend: Project Management API (projects, API-key issuance/rotation) | Complete |
 | 11 | Backend: Error Query / Dashboard API (list/detail/stats, used by web dashboard + mobile) | Complete |
 | 12 | Backend: Realtime/Notification foundation (device registration, notification service abstraction) | Complete |
-| 13 | Backend: API Hardening & Handoff (docs, integration tests, security review) | Not started |
+| 13 | Backend: API Hardening & Handoff (docs, integration tests, security review) | Complete |
 
-Phase 7 is the first backend phase; the backend is being built for three separate
-frontend teams (landing/onboarding web app, web dashboard, mobile app) working
-independently against the REST contract in `docs/API.md` — this repo does not build
-any of those UIs, only the backend/API. Phases 8–13 remain intentionally out of scope
-until explicitly instructed, one phase at a time. See `DECISIONS.md` for anything
-discovered early that belongs to a future phase.
+The backend (Phases 7–13) was built for three separate frontend teams
+(landing/onboarding web app, web dashboard, mobile app) working independently
+against the REST contract in `docs/API.md` — this repo does not build any of
+those UIs, only the backend/API. All 13 phases are now complete; see
+`DECISIONS.md` for the reasoning behind non-obvious choices made along the
+way, and `docs/FRONTEND_HANDOFF.md` for the integration guide aimed at those
+three teams.
 
 ## Backend guardrails (Phases 7–13)
 
@@ -59,6 +60,21 @@ error in the demo app, have the SDK capture it with useful context, send it to a
 configured endpoint, and see a small non-blocking notification — with the host
 application continuing to function normally throughout.
 
+## Definition of done (Backend)
+
+A developer can register an account, log in, create a project, receive its API
+key, configure the SDK with it, have a real captured event reach
+`POST /api/v1/events`, get persisted and grouped, and be readable back via
+the dashboard/mobile query endpoints (`GET .../errors`, `.../errors/:id`,
+`.../events`, `.../stats`) — with every project-scoped endpoint IDOR-safe
+(never leaking another user's data via status code or response shape),
+every response using one consistent `{success, ...}` / error shape, the two
+most abuse-prone endpoints (login, event ingestion) rate limited, and the
+whole flow proven by an automated end-to-end integration test
+(`backend/src/app/api/v1/e2e.integration.test.ts`) in addition to live
+verification. See `plans/PROGRESS.md`'s Phase 13 entry for the full
+hardening/security review this was checked against.
+
 ## Repository layout
 
 ```
@@ -66,6 +82,7 @@ mini-sentry/
   sdk/      framework-agnostic TypeScript SDK (npm workspace package @mini-sentry/sdk)
   demo/     minimal Vite + vanilla TS browser app consuming the local SDK
   backend/  REST API (npm workspace package @mini-sentry/backend) — Next.js + Prisma/PostgreSQL
-  docs/     API.md, API_EXAMPLES.md — the backend's REST contract reference
+  docs/     API.md (REST reference), API_EXAMPLES.md (curl walkthroughs),
+            FRONTEND_HANDOFF.md (integration guide for the three frontend teams)
   plans/    PROJECT_PLAN.md, PROGRESS.md, DECISIONS.md (this directory)
 ```

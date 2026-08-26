@@ -37,18 +37,18 @@ export async function POST(request: Request, { params }: RouteContext): Promise<
   }
 }
 
-export async function GET(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function GET(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }
 
-export async function PUT(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function PUT(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }
 
-export async function DELETE(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function DELETE(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }
 
-export async function PATCH(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function PATCH(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }

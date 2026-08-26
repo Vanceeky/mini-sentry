@@ -44,3 +44,14 @@ export const ACTIVE_GROUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 /** Device registration endpoints — bodies are tiny (platform + token). */
 export const MAX_DEVICE_PAYLOAD_BYTES = 4 * 1024; // 4 KiB
 export const PUSH_TOKEN_MAX_LEN = 4096; // generous — real tokens are ~40-200 chars
+
+/**
+ * Rate limits (Phase 13 hardening) — simple in-memory fixed windows, see
+ * lib/rateLimit.ts. Login is keyed by normalized email (classic brute-force
+ * target); events is keyed by project id, so only requests with a real,
+ * already-validated API key consume a bucket.
+ */
+export const LOGIN_RATE_LIMIT_MAX = 10;
+export const LOGIN_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+export const EVENT_RATE_LIMIT_MAX = 100;
+export const EVENT_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute

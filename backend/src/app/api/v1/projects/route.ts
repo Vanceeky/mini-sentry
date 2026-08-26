@@ -6,13 +6,15 @@ import { ApiError, ERRORS, jsonError } from "@/lib/errors";
 import { createProject, listOwnedProjects } from "@/lib/project";
 import { createProjectSchema } from "@/lib/projectSchema";
 
+const ALLOWED_METHODS = "GET, POST, OPTIONS";
+
 export async function OPTIONS(request: Request): Promise<NextResponse> {
-  const cors = resolveCorsHeaders(request.headers.get("origin"));
+  const cors = resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS);
   return new NextResponse(null, { status: 204, headers: cors });
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
-  const cors = resolveCorsHeaders(request.headers.get("origin"));
+  const cors = resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS);
 
   try {
     const user = await requireSessionUser(request);
@@ -28,7 +30,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const cors = resolveCorsHeaders(request.headers.get("origin"));
+  const cors = resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS);
 
   try {
     const user = await requireSessionUser(request);
@@ -67,14 +69,14 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 }
 
-export async function PUT(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED("GET, POST"));
+export async function PUT(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED("GET, POST"), resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS));
 }
 
-export async function DELETE(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED("GET, POST"));
+export async function DELETE(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED("GET, POST"), resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS));
 }
 
-export async function PATCH(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED("GET, POST"));
+export async function PATCH(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED("GET, POST"), resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS));
 }

@@ -8,10 +8,42 @@ those frontends need to read backend source code to integrate.
 - **Versioning:** all endpoints are prefixed `/api/v1`
 - **Format:** JSON request/response bodies throughout
 
-This document currently covers **Phase 7 — Event Ingestion**, **Phase 8 —
-Database & Event Persistence**, **Phase 9 — Authentication**, **Phase 10 —
-Project Management**, **Phase 11 — Error Query / Dashboard API**, and
-**Phase 12 — Realtime / Notification Foundation**.
+This document covers the complete backend built across Phases 7–13:
+Authentication, Projects, API Keys, Event Ingestion, Errors, Stats, Devices,
+and Notifications. Organized in that order below. See
+`docs/API_EXAMPLES.md` for runnable curl walkthroughs and
+`docs/FRONTEND_HANDOFF.md` for an integration-focused guide aimed at the
+landing/dashboard/mobile teams building against this API.
+
+## Error Responses
+
+Every error response, on every endpoint, uses the same shape:
+
+```json
+{ "success": false, "error": { "code": "INVALID_API_KEY", "message": "..." } }
+```
+
+`error.message` is always safe to display or log — it never contains a
+database error, an internal stack trace, or a secret. Unexpected internal
+failures always come back as `INTERNAL_ERROR` with a generic message; the real
+cause is logged server-side only.
+
+| HTTP status | code | meaning |
+|---|---|---|
+| 400 | `INVALID_EVENT` | (Event ingestion only) Request body isn't valid JSON, or fails validation (missing/wrong-type field, bad enum, bad timestamp, a `type: "http"` event without `request`) |
+| 400 | `VALIDATION_ERROR` | (Auth/Projects/Devices/Errors query params) Request body or query string isn't valid, or fails validation (missing field, malformed email, password too short/long, bad pagination value) |
+| 401 | `UNAUTHORIZED` | `Authorization` header is missing or not `Bearer <token>` shaped |
+| 401 | `INVALID_API_KEY` | The bearer token doesn't match any project |
+| 401 | `INVALID_CREDENTIALS` | (Login only) Email or password is incorrect — deliberately the same message/code either way, so a response can't be used to check whether an email is registered |
+| 401 | `INVALID_SESSION` | The bearer token doesn't match any active session (unknown, expired, or already logged out) |
+| 404 | `PROJECT_NOT_FOUND` | (Project-scoped endpoints) No project with this id is owned by the authenticated user — identical whether the id doesn't exist at all or belongs to someone else |
+| 404 | `ERROR_GROUP_NOT_FOUND` | (Error detail only) No error group with this id exists in the (already-confirmed-owned) project |
+| 404 | `DEVICE_NOT_FOUND` | (Device delete only) No device with this id is registered to the authenticated user — identical whether the id doesn't exist or belongs to someone else |
+| 405 | `METHOD_NOT_ALLOWED` | Any HTTP verb other than the endpoint's documented method/`OPTIONS` |
+| 409 | `EMAIL_ALREADY_REGISTERED` | (Register only) An account with this email already exists |
+| 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds the endpoint's size limit (32 KiB for events, 4 KiB for auth/projects/devices) |
+| 429 | `RATE_LIMITED` | (Login, Event ingestion) Too many requests in the current window — a `Retry-After` header (seconds) is always attached |
+| 500 | `INTERNAL_ERROR` | Unexpected server failure — message is always generic |
 
 ## Authentication
 
@@ -34,41 +66,10 @@ There is no cookie-based session — the same bearer-token mechanism works
 identically for a browser app and a native mobile client, so no platform
 needs a different auth flow.
 
-## Errors
-
-Every error response uses the same shape:
-
-```json
-{ "success": false, "error": { "code": "INVALID_API_KEY", "message": "..." } }
-```
-
-`error.message` is always safe to display or log — it never contains a
-database error, an internal stack trace, or a secret. Unexpected internal
-failures always come back as `INTERNAL_ERROR` with a generic message; the real
-cause is logged server-side only.
-
-| HTTP status | code | meaning |
-|---|---|---|
-| 400 | `INVALID_EVENT` | (Event ingestion only) Request body isn't valid JSON, or fails validation (missing/wrong-type field, bad enum, bad timestamp, a `type: "http"` event without `request`) |
-| 400 | `VALIDATION_ERROR` | (Auth endpoints) Request body isn't valid JSON, or fails validation (missing field, malformed email, password too short/long) |
-| 401 | `UNAUTHORIZED` | `Authorization` header is missing or not `Bearer <token>` shaped |
-| 401 | `INVALID_API_KEY` | The bearer token doesn't match any project |
-| 401 | `INVALID_CREDENTIALS` | (Login only) Email or password is incorrect — deliberately the same message/code either way, so a response can't be used to check whether an email is registered |
-| 401 | `INVALID_SESSION` | The bearer token doesn't match any active session (unknown, expired, or already logged out) |
-| 404 | `PROJECT_NOT_FOUND` | (Project-scoped endpoints) No project with this id is owned by the authenticated user — identical whether the id doesn't exist at all or belongs to someone else |
-| 404 | `ERROR_GROUP_NOT_FOUND` | (Error detail only) No error group with this id exists in the (already-confirmed-owned) project |
-| 404 | `DEVICE_NOT_FOUND` | (Device delete only) No device with this id is registered to the authenticated user — identical whether the id doesn't exist or belongs to someone else |
-| 405 | `METHOD_NOT_ALLOWED` | Any HTTP verb other than the endpoint's documented method/`OPTIONS` |
-| 409 | `EMAIL_ALREADY_REGISTERED` | (Register only) An account with this email already exists |
-| 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds the endpoint's size limit (32 KiB for events, 4 KiB for auth/projects/devices) |
-| 500 | `INTERNAL_ERROR` | Unexpected server failure — message is always generic |
-
-## Authentication API
-
 The flow: **Register -> Login -> receive a session token -> call authenticated
-endpoints with it -> Logout**. All four endpoints support CORS the same way
-as event ingestion (see the CORS section below) — no cookies are set or read
-by this API.
+endpoints with it -> Logout**. Every endpoint below supports CORS the same way
+as every other endpoint in this API (see the CORS section near the end) — no
+cookies are set or read by this API.
 
 ### `POST /api/v1/auth/register`
 
@@ -117,7 +118,11 @@ A wrong email *or* a wrong password both produce the identical
 a caller can't use the error to determine whether a given email is
 registered. See `plans/DECISIONS.md`.
 
-**Errors:** `400 VALIDATION_ERROR`, `401 INVALID_CREDENTIALS`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+**Rate limited** (Phase 13): at most 10 attempts per email per 5-minute
+window; further attempts get `429 RATE_LIMITED` with a `Retry-After` header
+(seconds) until the window resets.
+
+**Errors:** `400 VALIDATION_ERROR`, `401 INVALID_CREDENTIALS`, `413 PAYLOAD_TOO_LARGE`, `429 RATE_LIMITED`, `500 INTERNAL_ERROR`.
 
 ### `GET /api/v1/auth/me`
 
@@ -150,21 +155,22 @@ unrecognized, not to skipping auth entirely.
 
 **Errors:** `401 UNAUTHORIZED`, `500 INTERNAL_ERROR`.
 
-## Project Management API
+## Projects
 
 **Authentication:** every endpoint below requires a **user session token**
 (`Authorization: Bearer <sessionToken>` from `/auth/login`) — never a project
 API key. A project belongs to exactly one user (its creator); every endpoint
-is scoped to `the authenticated user's own projects` and returns
+is scoped to the authenticated user's own projects and returns
 `404 PROJECT_NOT_FOUND` — not `403` — for a project id that either doesn't
 exist or belongs to someone else. This is deliberate: a `403` would confirm
 the id refers to a *real* project (just not yours); `404` reveals nothing.
 See `plans/DECISIONS.md`.
 
 None of these endpoints ever return a project's full API key **except**
-creation and rotation, and only in that one response — every other response
-(list, get, update) includes `apiKeyLastFour` (the last 4 characters) for
-identification only, never the full key.
+creation and rotation (see the API Keys section below), and only in that one
+response — every other response (list, get, update) includes
+`apiKeyLastFour` (the last 4 characters) for identification only, never the
+full key.
 
 ### `GET /api/v1/projects`
 
@@ -193,7 +199,8 @@ Creates a project owned by the authenticated user and issues its API key.
 ```
 
 `apiKey` is the **full, raw** key — shown here and only here (also shown once
-more on rotation). Store it now; it cannot be retrieved again, only rotated.
+more on rotation, see API Keys below). Store it now; it cannot be retrieved
+again, only rotated.
 
 **Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
 
@@ -222,7 +229,16 @@ rows — irreversible, no confirmation step, no soft-delete/undo.
 
 **Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
 
+## API Keys
+
+Project API keys are managed as part of the Projects API above — creation
+(`POST /api/v1/projects`) always issues one atomically, so there's no
+separate "project with no key" state and no standalone "issue a first key"
+endpoint. The only additional endpoint is rotation:
+
 ### `POST /api/v1/projects/:projectId/api-key/rotate`
+
+**Authentication:** required (user session token, same ownership rules as Projects)
 
 Issues a brand-new API key for the project and **immediately invalidates the
 previous one** — no grace period, no overlap window. Any SDK still using the
@@ -233,18 +249,81 @@ instant this call returns.
 
 **Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
 
-There's no separate "issue a first key" endpoint — every project already
-gets one atomically at creation (`POST /api/v1/projects`), so a project
-either has a key from the moment it exists or doesn't exist yet; rotation
-covers every case after that.
+**Key lifecycle summary:** issued once at project creation -> shown in full
+exactly once -> used by the SDK on every `POST /api/v1/events` -> optionally
+rotated (old key dies immediately, new key shown once) -> implicitly retired
+when the project is deleted. There is no way to view a full key after its
+issuing response; only `apiKeyLastFour` remains visible afterward.
 
-## Error Query / Dashboard API
+## Event Ingestion
+
+### `POST /api/v1/events`
+
+Accepts a single captured event from the SDK. Events are validated,
+**persisted, and grouped** into a `Project -> ErrorGroup -> ErrorEvent` chain
+in PostgreSQL — readable back via the Errors and Stats sections below.
+
+Events are grouped by a fingerprint derived from `type` + `message` (plus
+`request.method`+`request.url` for `"http"` events, since their `message` is
+often a generic string like `"HTTP 500 Internal Server Error"` shared across
+unrelated endpoints). Each group tracks `firstSeenAt`/`lastSeenAt` and an
+`occurrenceCount` that increments on every matching event — a burst of the
+same error becomes one group with a growing count, not one row per
+occurrence.
+
+**Authentication:** required (`Authorization: Bearer <apiKey>`, a project API key)
+
+**Request body** — mirrors the SDK's `CapturedEvent` type exactly:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | Client-generated event id, max 200 chars |
+| `type` | `"error" \| "unhandledrejection" \| "http"` | yes | |
+| `message` | string | yes | Truncated (not rejected) beyond 4096 chars |
+| `stack` | string | no | Truncated beyond 20000 chars |
+| `url` | string | yes | The page URL. **Not required to be a well-formed absolute URL.** |
+| `timestamp` | string | yes | ISO-8601, e.g. `2026-08-26T10:30:00.000Z` — the client-side event time |
+| `environment` | `"browser"` | yes | Fixed literal |
+| `browser.userAgent` | string | yes | Truncated beyond 512 chars |
+| `request` | object | only if `type === "http"` | `{ url, method, statusCode? }` |
+| `request.url` | string | (within `request`) | Truncated beyond 2048 chars |
+| `request.method` | string | (within `request`) | Truncated beyond 16 chars |
+| `request.statusCode` | number | no | 100–599. Absent when the request failed outright (no response) |
+
+Unknown/extra fields (e.g. any future `metadata`) are silently stripped, never
+stored or echoed back — there is no `metadata` field in the current contract.
+Max total request body size: **32 KiB**.
+
+**Success response** — `200 OK`:
+
+```json
+{ "success": true, "eventId": "evt_<id>" }
+```
+
+`eventId` is a deterministic echo of the client's `id` (prefixed `evt_`), not
+a database-assigned identifier.
+
+**Rate limited** (Phase 13): at most 100 events per project per 60-second
+window; further events in the same window get `429 RATE_LIMITED` with a
+`Retry-After` header. Keyed by project id (only a request with a real,
+already-validated API key consumes a bucket).
+
+**Side effect (Phase 12):** after persisting, this endpoint may trigger a
+push notification to the project owner's registered devices — see
+Notifications below. This is entirely best-effort: a notification failure is
+logged server-side and never affects this endpoint's response — an event
+that persisted successfully always returns `200`, whether or not a
+notification fired.
+
+**Error responses:** see Error Responses above; all apply to this endpoint.
+
+## Errors
 
 **Authentication:** every endpoint below requires a **user session token**,
 scoped to the authenticated user's own project — the same ownership check and
-`404 PROJECT_NOT_FOUND` behavior as the Project Management API. The web
-dashboard and the mobile app both consume these exact same endpoints; there
-are no mobile-specific duplicates.
+`404 PROJECT_NOT_FOUND` behavior as Projects. The web dashboard and the
+mobile app both consume these exact same endpoints; there are no
+mobile-specific duplicates.
 
 Every list endpoint returns the same pagination shape:
 
@@ -279,7 +358,7 @@ earlier illustrative draft of this endpoint suggested), `status` (exact
 
 `endpoint`/`statusCode` are `null` for non-`"http"` groups (a JS error has
 neither). Every field is captured from the group's **first** occurrence, not
-recomputed live — see `docs/API.md`'s Event Ingestion section and
+recomputed live — see the Event Ingestion section above and
 `plans/DECISIONS.md`.
 
 **Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
@@ -329,7 +408,11 @@ view.
 
 **Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
 
+## Stats
+
 ### `GET /api/v1/projects/:projectId/stats`
+
+**Authentication:** required (user session token, same ownership rules as Projects/Errors)
 
 Overview numbers for a dashboard's summary cards.
 
@@ -351,64 +434,7 @@ contract — a reasonable, documented default; see `plans/DECISIONS.md`.
 
 **Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
 
-## Event Ingestion
-
-### `POST /api/v1/events`
-
-Accepts a single captured event from the SDK. Events are validated,
-**persisted, and grouped** into a `Project -> ErrorGroup -> ErrorEvent` chain
-in PostgreSQL — readable back via the Error Query / Dashboard API above.
-
-Events are grouped by a fingerprint derived from `type` + `message` (plus
-`request.method`+`request.url` for `"http"` events, since their `message` is
-often a generic string like `"HTTP 500 Internal Server Error"` shared across
-unrelated endpoints). Each group tracks `firstSeenAt`/`lastSeenAt` and an
-`occurrenceCount` that increments on every matching event — a burst of the
-same error becomes one group with a growing count, not one row per
-occurrence.
-
-**Authentication:** required (`Authorization: Bearer <apiKey>`)
-
-**Request body** — mirrors the SDK's `CapturedEvent` type exactly:
-
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `id` | string | yes | Client-generated event id, max 200 chars |
-| `type` | `"error" \| "unhandledrejection" \| "http"` | yes | |
-| `message` | string | yes | Truncated (not rejected) beyond 4096 chars |
-| `stack` | string | no | Truncated beyond 20000 chars |
-| `url` | string | yes | The page URL. **Not required to be a well-formed absolute URL.** |
-| `timestamp` | string | yes | ISO-8601, e.g. `2026-08-26T10:30:00.000Z` — the client-side event time |
-| `environment` | `"browser"` | yes | Fixed literal |
-| `browser.userAgent` | string | yes | Truncated beyond 512 chars |
-| `request` | object | only if `type === "http"` | `{ url, method, statusCode? }` |
-| `request.url` | string | (within `request`) | Truncated beyond 2048 chars |
-| `request.method` | string | (within `request`) | Truncated beyond 16 chars |
-| `request.statusCode` | number | no | 100–599. Absent when the request failed outright (no response) |
-
-Unknown/extra fields (e.g. any future `metadata`) are silently stripped, never
-stored or echoed back — there is no `metadata` field in the current contract.
-Max total request body size: **32 KiB**.
-
-**Success response** — `200 OK`:
-
-```json
-{ "success": true, "eventId": "evt_<id>" }
-```
-
-`eventId` is a deterministic echo of the client's `id` (prefixed `evt_`), not
-a database-assigned identifier.
-
-**Error responses:** see the Errors table above; all apply to this endpoint.
-
-**Side effect (Phase 12):** after persisting, this endpoint may trigger a
-push notification to the project owner's registered devices — see
-Notification Foundation below. This is entirely best-effort: a notification
-failure is logged server-side and never affects this endpoint's response: an
-event that persisted successfully always returns `200`, whether or not a
-notification fired.
-
-## Devices API
+## Devices
 
 **Authentication:** every endpoint below requires a **user session token** —
 a device belongs to the developer, not any one project, since one developer
@@ -446,11 +472,13 @@ There's no `GET /api/v1/devices` (list) — the brief asked only for
 register/delete; a list endpoint wasn't asked for and wasn't built. See
 `plans/DECISIONS.md`.
 
-## Notification Foundation
+## Notifications
 
 Prepares the backend for mobile push notifications without actually
 integrating a push provider yet — no Expo/Firebase credentials exist in
-this project. The architecture:
+this project. There is no dedicated notifications *endpoint*; this section
+documents the side effect `POST /api/v1/events` can trigger. The
+architecture:
 
 ```
 SDK -> POST /events -> persist event -> determine notification (if any) -> NotificationService -> (would push to) devices
@@ -487,7 +515,8 @@ repeat occurrence of an already-active group triggers nothing.
 ```
 
 `message` is `"<statusCode> <method> <url>"` for `"http"` events, or the
-event's own `message` otherwise.
+event's own `message` otherwise. Registering/removing the devices that
+receive these notifications is documented under Devices above.
 
 ## CORS
 
@@ -515,20 +544,31 @@ It is never a wildcard (`*`).
   to attach.
 
 Per-project origin allowlisting (letting a project owner register their own
-site's origin) is a natural extension for a future phase, now that Phase 10
-provides an authenticated API a dashboard could build that UI on top of —
-not implemented yet, see Known Limitations.
+site's origin) is a natural extension for a future phase, now that the
+Projects API provides an authenticated API a dashboard could build that UI on
+top of — not implemented yet, see Known Limitations.
 
-## Known limitations (Phases 7–12)
+## Rate Limiting
+
+Two endpoints are rate limited (Phase 13) — see their sections above for
+exact limits: `POST /api/v1/auth/login` (per email) and
+`POST /api/v1/events` (per project). Both use a simple in-memory fixed-window
+counter (`backend/src/lib/rateLimit.ts`) — no Redis or other new
+infrastructure. This is correct for a single-process deployment; a
+multi-instance deployment would need a shared store, since each process
+would otherwise count independently. Exceeding a limit returns
+`429 RATE_LIMITED` with a `Retry-After` header (seconds until the window
+resets).
+
+## Known limitations (Phases 7–13)
 
 - `os` and `metadata` exist as columns in the database but are always `null`
   — the current SDK contract has no data for either (no user-agent parsing,
   no `metadata` field on `CapturedEvent`). They're reserved, not derived or
   faked.
 - CORS is a single global allowlist (env var), not per-project yet.
-- No rate limiting yet (planned for Phase 13 hardening) — this applies
-  especially to `/auth/login`, where brute-force protection would normally
-  live.
+- Rate limiting is in-memory and per-process (see Rate Limiting above) — not
+  correct for a horizontally-scaled multi-instance deployment.
 - No pagination on `GET /api/v1/projects` — fine while a developer's project
   count is small; revisit if that assumption stops holding.
 - Rotating a project's API key is immediate and unconditional — no grace
@@ -567,4 +607,5 @@ not implemented yet, see Known Limitations.
   (`NEW_ERROR` > `SERIOUS_ERROR` > `REACTIVATED_ERROR`) — not a scoring
   engine; a single event can never trigger more than one notification.
 
-See `docs/API_EXAMPLES.md` for runnable curl examples and local setup steps.
+See `docs/API_EXAMPLES.md` for runnable curl examples and local setup steps,
+and `docs/FRONTEND_HANDOFF.md` for an end-to-end integration guide.

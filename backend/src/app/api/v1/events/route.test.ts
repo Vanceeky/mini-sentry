@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthenticatedProject } from "@/lib/apiKey";
+import { EVENT_RATE_LIMIT_MAX } from "@/lib/constants";
 
 const sampleEvent = {
   id: "abc-123",
@@ -148,6 +149,44 @@ describe("POST /api/v1/events", () => {
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
   });
 
+  it("returns 429 RATE_LIMITED after exceeding the per-project event limit", async () => {
+    const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
+
+    for (let i = 0; i < EVENT_RATE_LIMIT_MAX; i++) {
+      const response = await POST(postRequest({ ...sampleEvent, id: `evt_${i}` }, { auth: "Bearer good-key" }));
+      expect(response.status).toBe(200);
+    }
+
+    const limited = await POST(postRequest({ ...sampleEvent, id: "evt_over_limit" }, { auth: "Bearer good-key" }));
+    expect(limited.status).toBe(429);
+    const body = (await limited.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("RATE_LIMITED");
+    expect(limited.headers.get("Retry-After")).toBeTruthy();
+  });
+
+  it("rate-limits a different project independently", async () => {
+    const findProjectByApiKey = vi.fn().mockImplementation((key: string) =>
+      Promise.resolve(key === "flooded-key" ? { id: "proj_flooded", name: "Flooded", ownerId: null } : { id: "proj_other", name: "Other", ownerId: null }),
+    );
+    vi.resetModules();
+    vi.doMock("@/lib/apiKey", async () => {
+      const actual = await vi.importActual<typeof import("@/lib/apiKey")>("@/lib/apiKey");
+      return { ...actual, findProjectByApiKey };
+    });
+    vi.doMock("@/lib/persistEvent", () => ({ persistEvent: vi.fn().mockResolvedValue(defaultPersisted) }));
+    vi.doMock("@/lib/notify", () => ({ notifyIfNeeded: vi.fn().mockResolvedValue(undefined) }));
+    const { POST } = await import("./route");
+
+    for (let i = 0; i < EVENT_RATE_LIMIT_MAX; i++) {
+      await POST(postRequest({ ...sampleEvent, id: `evt_flood_${i}` }, { auth: "Bearer flooded-key" }));
+    }
+    const floodedNowLimited = await POST(postRequest({ ...sampleEvent, id: "evt_flood_over" }, { auth: "Bearer flooded-key" }));
+    expect(floodedNowLimited.status).toBe(429);
+
+    const otherProject = await POST(postRequest({ ...sampleEvent, id: "evt_other_1" }, { auth: "Bearer other-key" }));
+    expect(otherProject.status).toBe(200);
+  });
+
   it("calls notifyIfNeeded with the project, event, and persisted result after a successful persist", async () => {
     const notifyIfNeededMock = vi.fn().mockResolvedValue(undefined);
     const project = { id: "proj_1", name: "Test", ownerId: "user_1" };
@@ -205,7 +244,7 @@ describe("OPTIONS /api/v1/events", () => {
 describe("unsupported methods", () => {
   it("GET returns 405 METHOD_NOT_ALLOWED", async () => {
     const { GET } = await freshRoute(null);
-    const response = await GET();
+    const response = await GET(new Request("http://localhost:3000/api/v1/events"));
     expect(response.status).toBe(405);
     expect((await response.json()) as unknown).toMatchObject({ error: { code: "METHOD_NOT_ALLOWED" } });
   });

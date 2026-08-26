@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { loginSchema } from "@/lib/authSchema";
 import { resolveCorsHeaders } from "@/lib/cors";
-import { MAX_AUTH_PAYLOAD_BYTES } from "@/lib/constants";
+import { LOGIN_RATE_LIMIT_MAX, LOGIN_RATE_LIMIT_WINDOW_MS, MAX_AUTH_PAYLOAD_BYTES } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { ApiError, ERRORS, jsonError } from "@/lib/errors";
 import { DUMMY_PASSWORD_HASH, verifyPassword } from "@/lib/password";
+import { checkRateLimit } from "@/lib/rateLimit";
 import { createSession } from "@/lib/session";
 
 export async function OPTIONS(request: Request): Promise<NextResponse> {
@@ -37,6 +38,15 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     const { email, password } = result.data;
 
+    // Keyed by email (already validated/normalized above), not IP — this
+    // repo has no reliable client-IP extraction, and brute-forcing one
+    // account's password is the threat this specifically guards against.
+    // See DECISIONS.md for the trade-offs of this choice.
+    const rateLimit = checkRateLimit(`login:${email}`, LOGIN_RATE_LIMIT_MAX, LOGIN_RATE_LIMIT_WINDOW_MS);
+    if (!rateLimit.allowed) {
+      return jsonError(ERRORS.RATE_LIMITED(Math.ceil(rateLimit.retryAfterMs / 1000)), cors);
+    }
+
     const user = await prisma.user.findUnique({ where: { email } });
 
     // Always runs a scrypt computation, even when no account matches — a
@@ -67,18 +77,18 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 }
 
-export async function GET(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function GET(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }
 
-export async function PUT(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function PUT(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }
 
-export async function DELETE(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function DELETE(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }
 
-export async function PATCH(): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED());
+export async function PATCH(request: Request): Promise<NextResponse> {
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
 }

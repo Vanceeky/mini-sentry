@@ -15,7 +15,7 @@ describe("resolveCorsHeaders", () => {
     process.env.CORS_ALLOWED_ORIGINS = originalEnv;
   });
 
-  it("returns full CORS headers for an allowed origin", async () => {
+  it("returns full CORS headers for an allowed origin, defaulting Allow-Methods to POST, OPTIONS", async () => {
     const { resolveCorsHeaders } = await freshCors();
     const headers = resolveCorsHeaders("http://localhost:5173");
 
@@ -23,6 +23,12 @@ describe("resolveCorsHeaders", () => {
     expect(headers["Vary"]).toBe("Origin");
     expect(headers["Access-Control-Allow-Methods"]).toBe("POST, OPTIONS");
     expect(headers["Access-Control-Allow-Headers"]).toBe("Content-Type, Authorization");
+  });
+
+  it("reflects the given allowedMethods instead of the default", async () => {
+    const { resolveCorsHeaders } = await freshCors();
+    const headers = resolveCorsHeaders("http://localhost:5173", "GET, PATCH, DELETE, OPTIONS");
+    expect(headers["Access-Control-Allow-Methods"]).toBe("GET, PATCH, DELETE, OPTIONS");
   });
 
   it("returns no headers for a disallowed origin", async () => {

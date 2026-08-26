@@ -3,7 +3,8 @@
 Framework-agnostic client-side error monitoring SDK plus a backend REST API, built as
 an npm workspaces monorepo (`sdk/`, `demo/`, `backend/`). See `README.md` for a
 project overview, `sdk/README.md` for the SDK's API/config/privacy reference, and
-`docs/API.md` / `docs/API_EXAMPLES.md` for the backend's REST contract.
+`docs/API.md` / `docs/API_EXAMPLES.md` / `docs/FRONTEND_HANDOFF.md` for the
+backend's REST contract and integration guide.
 
 The backend serves three separate frontend teams (landing/onboarding web app, web
 dashboard, mobile app) building independently against `docs/API.md` — this repo does
@@ -22,12 +23,14 @@ This project is built one phase at a time against `plans/PROJECT_PLAN.md`.
 Read these before assuming what exists — check `plans/PROGRESS.md`'s latest phase
 before recommending or building on something that "should" be there.
 
-Phases 7–12 (event ingestion API, full DB persistence/error grouping,
-authentication, project/API-key management, error-query/dashboard API,
-realtime/notification foundation) are complete. Phase 13 (final hardening) is
-**explicitly out of scope** until the user asks for it — don't start scaffolding
-for it proactively. Never build dashboard/mobile/landing UI in this repo —
-backend/API only.
+All 13 phases are complete — the SDK MVP (0–6) and the full backend (7–13:
+event ingestion, DB persistence/grouping, auth, project/API-key management,
+error-query/dashboard API, realtime/notification foundation, and API
+hardening/handoff). There is no next phase queued; treat any further backend
+work (a real push provider, per-project CORS, password reset, Redis-backed
+rate limiting, etc. — see `plans/DECISIONS.md`'s Deferred section) as new
+scope to confirm with the user, not something to start proactively. Never
+build dashboard/mobile/landing UI in this repo — backend/API only.
 
 ## Commands (run from repo root; workspaces: `sdk`, `demo`, `backend`)
 
@@ -72,8 +75,14 @@ backend/API only.
   Prefer truncating overlong string fields over rejecting the whole request — see
   `eventSchema.ts`'s `normalizeEvent()`.
 - **API keys**: stored hashed (`lib/apiKey.ts`'s `hashApiKey()`, SHA-256), never raw.
-- **CORS**: `lib/cors.ts`'s `resolveCorsHeaders()` reflects an origin only if it's in
-  the `CORS_ALLOWED_ORIGINS` env allowlist — never a blind `*`.
+- **CORS**: `lib/cors.ts`'s `resolveCorsHeaders(origin, allowedMethods)` reflects an
+  origin only if it's in the `CORS_ALLOWED_ORIGINS` env allowlist — never a blind
+  `*`. **Always pass the route's real `allowedMethods`** (a local `ALLOWED_METHODS`
+  constant matching that route's `METHOD_NOT_ALLOWED(...)` string) — omitting it
+  silently defaults to `"POST, OPTIONS"`, which broke real browser preflight for
+  every non-POST-only route until Phase 13 caught it. Every method handler
+  (including the 405 stubs) must receive `request` and pass CORS headers, even on
+  error paths.
 - **Prisma**: schema at `backend/prisma/schema.prisma`; `backend/src/lib/db.ts` is the
   shared client singleton (reused across dev hot-reloads via `globalThis`). Treat
   already-shipped model fields as additive-only across phases — see `plans/DECISIONS.md`.
@@ -138,6 +147,13 @@ backend/API only.
   auto-generates its own `AGENTS.md`/`CLAUDE.md` inside `backend/` on every dev/build
   run, which would collide confusingly with this repo's own hand-authored root
   `CLAUDE.md`. Don't remove that config.
+- **Rate limiting**: `lib/rateLimit.ts`'s `checkRateLimit(key, max, windowMs)` is a
+  simple in-memory fixed-window counter — no Redis. Always key on an
+  already-validated value (a zod-validated email, a real project id resolved from a
+  verified API key) — never on raw/unvalidated input, which would let an attacker
+  grow the in-memory store with arbitrary garbage keys. On a `429`, use
+  `ERRORS.RATE_LIMITED(retryAfterSeconds)` — `jsonError()` automatically turns
+  `ApiError.retryAfterSeconds` into a `Retry-After` header.
 
 ## Testing
 
@@ -145,8 +161,11 @@ backend/API only.
 - Backend: Vitest, `node` environment (`backend/vitest.config.ts`), mocking Prisma
   (`vi.doMock("./db", ...)` / `vi.doMock("@/lib/apiKey", ...)`) rather than hitting a
   real database in the default `npm run test` run. DB-gated integration tests use
-  `describe.skipIf(!process.env.DATABASE_URL)` — see
-  `backend/src/app/api/v1/events/route.integration.test.ts`.
+  `describe.skipIf(!process.env.DATABASE_URL)` — several exist per-phase (e.g.
+  `events/route.integration.test.ts`, `auth/flow.integration.test.ts`), plus one
+  canonical whole-system test,
+  `backend/src/app/api/v1/e2e.integration.test.ts`, driving the brief's exact
+  main-flow + mobile-flow acceptance criteria end to end.
 - Modules with module-level singleton state (`core/state`, `capture/store`,
   `capture/network`, `transport/send`, `ui/notification`, `backend/src/lib/db`, etc.)
   are tested with `vi.resetModules()` + a dynamic `import()` per test, so state doesn't
