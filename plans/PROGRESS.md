@@ -527,7 +527,8 @@ scrubbing, defensive copy, README)"
   only the standalone `docker-compose` binary is. Both are documented in the README;
   use whichever is actually available.
 
-**Commit:** _pending_
+**Commit:** `c2f8ed6` — "Phase 7: event ingestion API (backend workspace, Prisma,
+POST /api/v1/events)"
 
 **Next phase:** Phase 8 — Backend: Database & Event Persistence (full
 `error_groups`/`error_events` schema, grouping logic).
