@@ -30,7 +30,18 @@ hardening/handoff). There is no next phase queued; treat any further backend
 work (a real push provider, per-project CORS, password reset, Redis-backed
 rate limiting, etc. — see `plans/DECISIONS.md`'s Deferred section) as new
 scope to confirm with the user, not something to start proactively. Never
-build dashboard/mobile/landing UI in this repo — backend/API only.
+build dashboard/mobile UI in this repo — backend/API only.
+
+**Exception, by explicit user request**: `web/` is a standalone Next.js +
+shadcn/ui app (own `package.json`/`node_modules`, not an npm workspace
+member alongside `sdk`/`demo`/`backend`, not covered by root
+`build`/`test`/`typecheck`) — a marketing landing page (with SDK install
+docs, npm + a self-hosted script-tag build via `sdk`'s `build:cdn` script)
+*and* the authenticated web dashboard (register/login, project management,
+error browsing) that consumes this backend's own API. This exception is
+scoped to `web/` specifically, by explicit user request, one piece at a
+time — it doesn't reopen the boundary generally. The mobile app UI remains
+out of scope for this repo.
 
 ## Commands (run from repo root; workspaces: `sdk`, `demo`, `backend`)
 

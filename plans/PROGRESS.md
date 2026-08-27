@@ -1241,3 +1241,101 @@ of Done sections for both. Future work (a real push provider, per-project
 CORS, password reset, etc.) is tracked in `plans/DECISIONS.md`'s Deferred
 section and `docs/API.md`'s Known Limitations, to be picked up only when
 explicitly instructed.
+
+## Post-Phase-13 — Web app + SDK/backend enhancements
+
+**Status:** Complete (not a numbered phase — new scope confirmed with the
+user incrementally, one piece at a time, per `CLAUDE.md`'s "further backend
+work is new scope, not something to start proactively" guardrail).
+
+**What was built:**
+- **`web/`** — a standalone Next.js 16 + Tailwind + shadcn/ui app (own
+  toolchain, not an npm workspace member alongside `sdk`/`demo`/`backend`;
+  see `CLAUDE.md`'s "Exception, by explicit user request" note). Covers:
+  - A marketing landing page (dark hero with a live-cycling sample error
+    feed, features, how-it-works, an SDK install/docs section with real
+    npm + script-tag snippets).
+  - Auth: register (auto-logs in immediately with the same credentials
+    right after, rather than bouncing to a second login screen) and login,
+    session token in `localStorage` (matches the backend exactly — it's
+    bearer-token-only, no cookie support exists server-side).
+  - Dashboard: project list, a create-project flow ending in a one-time API
+    key reveal with a ready-to-paste SDK snippet using the real key, and
+    per-project error browsing (stats, filterable/paginated/sortable error
+    groups, group detail with stack trace + occurrences).
+  - `web/public/demo.html`: a plain-HTML, no-build-step page exercising
+    every SDK capture path against the self-hosted script-tag bundle —
+    doubles as a live SDK integration check independent of the Next.js app.
+- **SDK — script-tag/CDN build**: `npm run build -w sdk` now also runs
+  esbuild to emit `dist/mini-sentry.min.js`, an IIFE exposing a `MiniSentry`
+  global (`MiniSentry.init(...)`), alongside the existing ESM build — for
+  consumers with no bundler. Not published to npm; self-hosted only.
+- **SDK — `filename`/`line`/`column` capture**: `normalizeErrorEvent()` now
+  reads these off the browser's native `ErrorEvent` for `"error"`-type
+  events (previously only `message`/`stack` were captured), guarding
+  against the meaningless-zero case browsers use for cross-origin "Script
+  error." Surfaced on the backend the same way `stack` already was — from
+  the group's most recent occurrence, not stored on `ErrorGroup` itself.
+- **SDK — resource-load-failure capture (new `"resource"` event type)**:
+  broken `<img>`/`<script src>`/`<link href>` loads are browser-native
+  resource fetches that never go through `fetch()`, so the existing network
+  capture never saw them (found while debugging a real legacy-system
+  integration — a broken `<img>` 404 wasn't showing up in the dashboard). A
+  capture-phase `error` listener on `document` closes that gap. A status
+  code is attached best-effort via the Resource Timing API
+  (`PerformanceResourceTiming.responseStatus`) when the browser/CORS setup
+  allows it — deliberately never guessed when unavailable (cross-origin
+  without a `Timing-Allow-Origin` response header, or an unsupported
+  browser, both leave it absent).
+- **Backend**: threaded the new `"resource"` type through validation
+  (`eventSchema.ts`, `errorQuerySchema.ts`), fingerprinting/grouping
+  (`fingerprint.ts` — two different broken images now form two different
+  groups, not one), persistence (`persistEvent.ts`, reusing the existing
+  nullable `endpoint`/`statusCode` columns — no new columns needed for the
+  type itself), and notifications (`notificationRules.ts`). New nullable
+  `filename`/`line`/`column` columns on `ErrorEvent`
+  (migration `20260827132742_add_event_source_location`).
+
+**Tests performed:**
+- SDK: 68/68 passing (`npm run test -w sdk`), including new
+  `resources.test.ts` and extended `normalize.test.ts`/`index.test.ts`.
+- Backend: 300/300 passing including DB-gated integration tests run against
+  the real local Postgres (`DATABASE_URL=... npx vitest run`).
+- `web/`: no automated test suite (none existed for this app); verified via
+  `npm run build` (clean) plus live smoke checks — curled every new route
+  for a 200 with no server/hydration error, and a full real backend
+  round-trip (register → login → create project → send events → list/filter
+  groups → group detail) via curl against the actual running backend, not
+  mocked.
+- Caught and fixed live: after the `filename`/`line`/`column` migration, the
+  already-running backend dev server had the pre-migration Prisma Client
+  cached in memory (`prisma migrate dev` regenerates the client on disk, but
+  a running process doesn't hot-swap it) — a real 500 until restarted.
+  Documents a real gotcha for anyone running a schema migration against a
+  live dev server rather than a fresh one.
+
+**Known limitations:**
+- Resource-load capture only covers `img`/`script`/`link` — not
+  `<audio>`/`<video>`/`<iframe>` or CSS-loaded assets
+  (`background-image`, `@import`).
+- Resource-load status codes are inherently best-effort (Resource Timing
+  API) — often absent for cross-origin resources without a
+  `Timing-Allow-Origin` response header, or on older browsers. Never
+  fabricated when unavailable.
+- `web/` has no automated tests. Given the amount of client-rendered,
+  fetch-driven UI added, this is a real gap if the app keeps growing —
+  worth revisiting before adding much more to it.
+- HTTP response-body capture was proposed alongside the `filename`/`line`/
+  `column` work and explicitly descoped by the user (size/redaction risk —
+  a response body can't be safely redacted the way a URL's query params
+  can). Not built. See `plans/DECISIONS.md`.
+
+**Commits:**
+- `dfe2a61` — "sdk+backend: capture JS source location, resource-load
+  failures, and best-effort status"
+- `b30a4ad` — "web: add Next.js dashboard (landing page, auth, projects,
+  error browsing)"
+
+**Next:** none queued. Future work (a real push provider, per-project CORS,
+password reset, response-body capture with real redaction, `web/` test
+coverage, etc.) stays new scope to confirm before starting, same as always.

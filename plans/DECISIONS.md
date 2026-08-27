@@ -663,6 +663,60 @@ re-litigate them without cause.
   brief asked for by name, kept as one readable file rather than assembled
   from cross-references.
 
+## Post-Phase-13 — Web app + SDK/backend enhancements
+
+- **`web/` is a standalone app, not an npm workspace member**: it has its
+  own `package.json`/`node_modules`/lockfile, not wired into root
+  `build`/`test`/`typecheck`. Deliberate — it's a different toolchain
+  (Next.js dev server, Tailwind) from `sdk`/`demo`/`backend`, and this keeps
+  it from entangling root scripts. Built as an explicit exception to
+  "never build dashboard/mobile UI in this repo" (see `CLAUDE.md`) — the
+  user asked for it directly; the exception is scoped to this one
+  marketing/dashboard app, not a general reopening of that boundary.
+- **Session token in `localStorage`, not an httpOnly cookie**: the backend
+  is bearer-token-only by design (no cookie support anywhere in its auth
+  model), so a cookie-based session would need a new backend capability (or
+  a Next.js API-route proxy layer) neither of which exists. `localStorage`
+  matches the backend exactly as built. Tradeoff acknowledged: the token is
+  readable by any JS on the page (XSS-exposed) — accepted as the pragmatic
+  choice given the backend's actual capabilities, not treated as a non-issue.
+- **Register auto-logs-in**: `POST /auth/register` never returns a session
+  token (by design, see Phase 9) — the frontend immediately calls
+  `POST /auth/login` with the same just-submitted credentials right after a
+  successful register, rather than showing a second login screen. User
+  confirmed this over the alternative.
+- **Resource-load failures reuse the existing `endpoint`/`statusCode`
+  columns**, not new ones. `ErrorGroup.endpoint` was already a generic
+  nullable "extra context beyond message" column (previously only
+  `http`-populated); a broken resource's `"<tagName> <url>"` fits the same
+  slot without a migration. `statusCode` stays `null` unless the Resource
+  Timing lookup succeeds.
+- **Resource-load status code is best-effort via the Resource Timing API**,
+  not a second network request. An explicit HEAD/GET request to confirm the
+  status would be a real behavior change (an extra network call the host
+  app didn't make) for no guaranteed answer anyway (many failure modes —
+  DNS, CORS, offline — wouldn't resolve a status either way). `0` (the
+  API's own "not available" signal) is treated as absent, never stored as
+  a fake `0`.
+- **HTTP response-body capture was proposed and explicitly descoped.** Unlike
+  a URL, whose credential-looking query params can be pattern-matched and
+  redacted (`core/scrub.ts`), a JSON response body has no reliable
+  redaction strategy — secrets/PII can appear at any depth under any key
+  name. User's call: not worth the privacy risk for now. If revisited, it
+  should be opt-in, truncated, and errors-only at minimum — see the
+  conversation this decision came from, not re-litigated blind.
+- **`filename`/`line`/`column` and `resource` are occurrence-level fields on
+  `ErrorEvent`, never on `ErrorGroup`** — same "representative group fields,
+  captured once" convention `stack` already established (Phase 8/11):
+  surfaced on group detail from the *most recent* occurrence via the same
+  query `stack` already uses, not stored as a group-summary field.
+- **SDK CDN build uses esbuild, not the existing `tsc`-only build.** `tsc`
+  emits ESM only, no bundling — can't produce a single `<script>`-loadable
+  file exposing a global. esbuild's `--format=iife --global-name=MiniSentry`
+  does exactly that in one extra `build:cdn` script step, without changing
+  the existing ESM/`tsc` output npm consumers get. (Phase 0's own decisions
+  log flagged this exact revisit-later question — see Phase 0 above.)
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
@@ -696,3 +750,11 @@ re-litigate them without cause.
 - Stack-frame-based (rather than message-based) error grouping: not attempted — the
   SDK doesn't capture structured frames, and adding that is a bigger change to the
   capture contract than this backend-only phase should make unilaterally.
+- HTTP response-body capture: proposed and explicitly descoped by the user
+  (see Post-Phase-13 above) — no safe redaction strategy for arbitrary body
+  content exists yet.
+- Resource-load capture beyond `img`/`script`/`link` (`<audio>`/`<video>`/
+  `<iframe>`, CSS-loaded assets): not asked for, deferred until a real need
+  shows up.
+- Automated test coverage for `web/`: none exists yet; verified so far via
+  build checks + live manual/curl smoke tests only.

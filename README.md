@@ -9,6 +9,8 @@ built phase by phase as an npm workspaces monorepo.
 sdk/      the SDK itself (@mini-sentry/sdk) — see sdk/README.md for API docs
 demo/     a minimal Vite + vanilla-TS app that exercises every SDK capability
 backend/  the REST API (@mini-sentry/backend) — Next.js + PostgreSQL/Prisma
+web/      standalone Next.js dashboard (landing page, auth, projects, error
+          browsing) — own toolchain, not an npm workspace member, see below
 docs/     API.md (endpoint contract), API_EXAMPLES.md (curl walkthroughs),
           FRONTEND_HANDOFF.md (integration guide for the three frontend teams)
 plans/    PROJECT_PLAN.md (scope/phasing), PROGRESS.md (what's verified, phase by
@@ -17,8 +19,20 @@ plans/    PROJECT_PLAN.md (scope/phasing), PROGRESS.md (what's verified, phase b
 
 The backend was built for three separate frontend teams (a landing/onboarding
 web app, a web dashboard, and a mobile app) working independently against the REST
-contract in `docs/API.md` — this repo does not build any of those UIs. Start with
-`docs/FRONTEND_HANDOFF.md` if you're integrating one of them.
+contract in `docs/API.md` — this repo does not build any of those UIs, with one
+explicit exception: `web/` (see `CLAUDE.md`). Start with `docs/FRONTEND_HANDOFF.md`
+if you're integrating one of the other two.
+
+### Web dashboard (`web/`)
+
+```
+cd web
+cp .env.local.example .env.local   # point NEXT_PUBLIC_API_BASE_URL at your backend
+npm install
+npm run dev -- -p 3100             # a different port than the backend's own :3000
+```
+Also add `http://localhost:3100` to the backend's `CORS_ALLOWED_ORIGINS`
+(`backend/.env`) for local dev.
 
 ## Getting started
 
@@ -77,3 +91,12 @@ See `plans/PROJECT_PLAN.md` for the full phase table and Definition of Done,
 limitations tracked for future work (a real push provider, per-project CORS,
 password reset, Redis-backed rate limiting for multi-instance deployment, etc.),
 none of which are in progress.
+
+**Since Phase 13**, as new scope confirmed incrementally: the `web/` dashboard
+(landing page, auth, projects, error browsing — see above); an SDK script-tag/CDN
+build (`sdk/dist/mini-sentry.min.js`, a `MiniSentry` global, no bundler needed);
+`filename`/`line`/`column` capture for JS errors; and a new `"resource"` event type
+capturing failed `<img>`/`<script>`/`<link>` loads (with a best-effort status code
+via the Resource Timing API), which the original `fetch`-only network capture never
+saw. Details and rationale in `plans/PROGRESS.md`'s and `plans/DECISIONS.md`'s
+"Post-Phase-13" sections.
