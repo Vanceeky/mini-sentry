@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mini Sentry — SDK demo</title>
+<style>
+  :root {
+    --ink: #10171a;
+    --muted: #5b6a6d;
+    --line: #dde3e0;
+    --bg: #f7f8f6;
+    --card: #ffffff;
+    --accent: #1b6b6f;
+    --accent-tint: #e2f0ef;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 0.3rem; }
+  p.lede { color: var(--muted); margin: 0 0 1.8rem; }
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.25rem 1.4rem;
+    margin-bottom: 1.25rem;
+  }
+  h2 {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.9rem;
+  }
+  label { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.3rem; }
+  input {
+    width: 100%;
+    font: inherit;
+    font-family: ui-monospace, monospace;
+    font-size: 0.82rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    margin-bottom: 0.9rem;
+  }
+  button {
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.55rem 1rem;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-tint); border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  #status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-left: 0.75rem;
+  }
+  #status .dot { width: 7px; height: 7px; border-radius: 50%; background: #b23a2c; }
+  #status.ready .dot { background: #237a4f; }
+  pre {
+    background: #10171a;
+    color: #dce6e2;
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    font-size: 0.76rem;
+    line-height: 1.55;
+    max-height: 300px;
+    overflow: auto;
+    margin: 0;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mini Sentry — SDK demo</h1>
+  <p class="lede">
+    A plain HTML page with no build step, using the script-tag bundle
+    (<code>/mini-sentry.min.js</code>). Paste a project's API key below, then
+    trigger a sample error — check your dashboard's error list after.
+  </p>
+
+  <section>
+    <h2>1. Configure</h2>
+    <label for="apiKey">API key</label>
+    <input id="apiKey" placeholder="mnst_..." autocomplete="off" />
+    <label for="endpoint">Endpoint</label>
+    <input id="endpoint" value="http://localhost:3000/api/v1/events" />
+    <button id="initBtn" class="primary">Initialize SDK</button>
+    <span id="status"><span class="dot"></span><span id="statusLabel">not initialized</span></span>
+  </section>
+
+  <section>
+    <h2>2. Trigger a sample error</h2>
+    <div class="row">
+      <button id="btnError" disabled>Uncaught JS error</button>
+      <button id="btnRejection" disabled>Unhandled rejection</button>
+      <button id="btnHttpFail" disabled>Non-2xx response</button>
+      <button id="btnNetworkFail" disabled>Network failure</button>
+      <button id="btnBrokenImage" disabled>Broken image</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Captured events (last 50, buffered client-side)</h2>
+    <pre id="log">nothing captured yet</pre>
+  </section>
+</main>
+
+<script src="/mini-sentry.min.js"></script>
+<script>
+  var statusEl = document.getElementById("status");
+  var log = document.getElementById("log");
+  var triggerButtons = [
+    document.getElementById("btnError"),
+    document.getElementById("btnRejection"),
+    document.getElementById("btnHttpFail"),
+    document.getElementById("btnNetworkFail"),
+    document.getElementById("btnBrokenImage"),
+  ];
+
+  function refreshLog() {
+    var events = MiniSentry.getCapturedEvents();
+    log.textContent = events.length
+      ? JSON.stringify(events, null, 2)
+      : "nothing captured yet";
+  }
+
+  document.getElementById("initBtn").addEventListener("click", function () {
+    var apiKey = document.getElementById("apiKey").value.trim();
+    var endpoint = document.getElementById("endpoint").value.trim();
+    if (!apiKey) {
+      alert("Paste a project API key first — create one at /dashboard/new.");
+      return;
+    }
+    MiniSentry.init({ apiKey: apiKey, endpoint: endpoint });
+    statusEl.classList.add("ready");
+    document.getElementById("statusLabel").textContent = "initialized";
+    triggerButtons.forEach(function (b) { b.disabled = false; });
+  });
+
+  document.getElementById("btnError").addEventListener("click", function () {
+    setTimeout(function () {
+      throw new Error("Sample error: cart total calculation failed");
+    }, 0);
+    setTimeout(refreshLog, 100);
+  });
+
+  document.getElementById("btnRejection").addEventListener("click", function () {
+    Promise.reject(new Error("Sample rejection: payment webhook not acknowledged"));
+    setTimeout(refreshLog, 100);
+  });
+
+  document.getElementById("btnHttpFail").addEventListener("click", function () {
+    var apiBase = document.getElementById("endpoint").value.trim().replace(/\/events\/?$/, "");
+    fetch(apiBase + "/this-route-does-not-exist")
+      .catch(function () {})
+      .finally(function () { setTimeout(refreshLog, 100); });
+  });
+
+  document.getElementById("btnNetworkFail").addEventListener("click", function () {
+    fetch("https://this-domain-does-not-exist-12345.invalid/")
+      .catch(function () {})
+      .finally(function () { setTimeout(refreshLog, 100); });
+  });
+
+  document.getElementById("btnBrokenImage").addEventListener("click", function () {
+    var img = document.createElement("img");
+    img.src = "/this-image-does-not-exist-" + Date.now() + ".png";
+    img.style.display = "none";
+    document.body.appendChild(img);
+    setTimeout(refreshLog, 200);
+  });
+</script>
+</body>
+</html>
