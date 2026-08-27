@@ -56,8 +56,12 @@ export async function persistEvent(projectId: string, event: CapturedEventInput)
         // Representative values from the first occurrence — see the
         // schema's doc comment. Not updated on later occurrences, same as
         // `message`/`type`.
-        endpoint: event.request ? `${event.request.method} ${event.request.url}` : null,
-        statusCode: event.request?.statusCode ?? null,
+        endpoint: event.request
+          ? `${event.request.method} ${event.request.url}`
+          : event.resource
+            ? `${event.resource.tagName} ${event.resource.url}`
+            : null,
+        statusCode: event.request?.statusCode ?? event.resource?.statusCode ?? null,
         environment: event.environment,
         firstSeenAt: now,
         lastSeenAt: now,
@@ -76,6 +80,9 @@ export async function persistEvent(projectId: string, event: CapturedEventInput)
         type: event.type,
         message: event.message,
         stack: event.stack,
+        filename: event.filename,
+        line: event.line,
+        column: event.column,
         url: event.url,
         method: event.request?.method,
         statusCode: event.request?.statusCode,

@@ -85,13 +85,38 @@ describe("getErrorGroupDetail", () => {
       errorEvent: {
         findMany: vi.fn().mockResolvedValue([{ id: "evt_page2" }]),
         count: vi.fn().mockResolvedValue(50),
-        findFirst: vi.fn().mockResolvedValue({ stack: "most recent stack" }),
+        findFirst: vi.fn().mockResolvedValue({
+          stack: "most recent stack",
+          filename: "https://example.com/app.js",
+          line: 42,
+          column: 15,
+        }),
       },
     });
 
     const detail = await getErrorGroupDetail("proj_1", "grp_1", { page: 2, limit: 20 });
     expect(detail?.group.stack).toBe("most recent stack");
+    expect(detail?.group.filename).toBe("https://example.com/app.js");
+    expect(detail?.group.line).toBe(42);
+    expect(detail?.group.column).toBe(15);
     expect(detail?.occurrences.pagination).toEqual({ page: 2, limit: 20, total: 50 });
+  });
+
+  it("falls back to null filename/line/column for an occurrence captured before this field existed", async () => {
+    const group = { id: "grp_1", message: "boom", type: "error", occurrenceCount: 1 };
+    const { getErrorGroupDetail } = await freshErrorQuery({
+      errorGroup: { findFirst: vi.fn().mockResolvedValue(group) },
+      errorEvent: {
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(1),
+        findFirst: vi.fn().mockResolvedValue({ stack: null, filename: null, line: null, column: null }),
+      },
+    });
+
+    const detail = await getErrorGroupDetail("proj_1", "grp_1", { page: 1, limit: 20 });
+    expect(detail?.group.filename).toBeNull();
+    expect(detail?.group.line).toBeNull();
+    expect(detail?.group.column).toBeNull();
   });
 
   it("scopes the group lookup to both groupId AND projectId", async () => {

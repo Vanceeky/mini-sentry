@@ -17,9 +17,12 @@ import {
 export const capturedEventSchema = z
   .object({
     id: z.string().min(1).max(ID_MAX_LEN),
-    type: z.enum(["error", "unhandledrejection", "http"]),
+    type: z.enum(["error", "unhandledrejection", "http", "resource"]),
     message: z.string().min(1),
     stack: z.string().optional(),
+    filename: z.string().optional(),
+    line: z.number().int().positive().optional(),
+    column: z.number().int().positive().optional(),
     url: z.string().min(1),
     timestamp: z.string().datetime(),
     environment: z.literal("browser"),
@@ -33,10 +36,21 @@ export const capturedEventSchema = z
         statusCode: z.number().int().min(100).max(599).optional(),
       })
       .optional(),
+    resource: z
+      .object({
+        url: z.string().min(1),
+        tagName: z.enum(["img", "script", "link"]),
+        statusCode: z.number().int().min(100).max(599).optional(),
+      })
+      .optional(),
   })
   .refine((event) => event.type !== "http" || event.request !== undefined, {
     message: 'request is required when type is "http"',
     path: ["request"],
+  })
+  .refine((event) => event.type !== "resource" || event.resource !== undefined, {
+    message: 'resource is required when type is "resource"',
+    path: ["resource"],
   });
 
 export type CapturedEventInput = z.infer<typeof capturedEventSchema>;
@@ -57,6 +71,7 @@ export function normalizeEvent(event: CapturedEventInput): CapturedEventInput {
     ...event,
     message: truncate(event.message, MESSAGE_MAX_LEN),
     stack: event.stack !== undefined ? truncate(event.stack, STACK_MAX_LEN) : undefined,
+    filename: event.filename !== undefined ? truncate(event.filename, URL_MAX_LEN) : undefined,
     url: truncate(event.url, URL_MAX_LEN),
     browser: { userAgent: truncate(event.browser.userAgent, USER_AGENT_MAX_LEN) },
     request: event.request
@@ -65,6 +80,9 @@ export function normalizeEvent(event: CapturedEventInput): CapturedEventInput {
           url: truncate(event.request.url, URL_MAX_LEN),
           method: truncate(event.request.method, REQUEST_METHOD_MAX_LEN),
         }
+      : undefined,
+    resource: event.resource
+      ? { ...event.resource, url: truncate(event.resource.url, URL_MAX_LEN) }
       : undefined,
   };
 }

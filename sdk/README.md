@@ -7,6 +7,8 @@ Not published to a registry — consumed locally via the npm workspace in this r
 
 ## Usage
 
+### npm / bundler
+
 ```ts
 import { init, getCapturedEvents } from "@mini-sentry/sdk";
 
@@ -15,6 +17,27 @@ init({
   endpoint: "https://your-collector.example.com/events", // optional
 });
 ```
+
+### Script tag (no build step)
+
+`npm run build -w sdk` also emits an IIFE bundle at `dist/mini-sentry.min.js`
+(via esbuild, `build:cdn` script) that exposes a `MiniSentry` global — for a plain
+HTML page with no bundler:
+
+```html
+<script src="/path/to/mini-sentry.min.js"></script>
+<script>
+  MiniSentry.init({
+    apiKey: "your_project_key",
+    endpoint: "https://your-collector.example.com/events",
+  });
+</script>
+```
+
+This isn't hosted anywhere yet — the package isn't published to npm (still
+`"private": true`), so there's no jsDelivr/unpkg URL to point at. Publishing it is a
+separate, explicit step (bumping the version, flipping `private` to `false`, running
+`npm publish`) — not done as part of adding this build output.
 
 `init()` never throws, even with an invalid config — a malformed call is logged as a
 `console.warn` and leaves the SDK in a no-op state rather than affecting your app.
@@ -31,12 +54,21 @@ init({
 
 - Uncaught JS errors and unhandled promise rejections (via `window.addEventListener`,
   not by assigning `window.onerror` — so it composes with any handler your app already
-  has, and never suppresses the browser's own console logging).
+  has, and never suppresses the browser's own console logging). JS errors also capture
+  `filename`/`line`/`column` when the browser provides them, useful for locating a
+  minified production stack trace.
 - Non-2xx `fetch` responses and outright network failures (DNS/CORS/offline), via a
   `fetch` wrapper that always returns/rethrows exactly what your app would have
   gotten without the SDK installed.
+- Failed resource loads — broken `<img src>`, `<script src>`, `<link href>` — via a
+  capture-phase `error` listener, since these never go through `fetch()` and would
+  otherwise be invisible to the network capture above. A status code is attached
+  best-effort via the Resource Timing API when the browser/CORS setup allows it —
+  never guessed when it's not available.
 
-`XMLHttpRequest` is not intercepted — only `fetch`.
+`XMLHttpRequest` is not intercepted — only `fetch`. Resource-load capture only covers
+`img`/`script`/`link` — not `<audio>`/`<video>`/`<iframe>` or CSS-loaded assets like
+`background-image`.
 
 ## What happens to a captured event
 

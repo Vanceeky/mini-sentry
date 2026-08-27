@@ -10,14 +10,19 @@ import type { CapturedEventInput } from "./eventSchema";
  * For "http" events, `message` alone is too coarse — e.g. every failed
  * request produces the generic "HTTP 500 Internal Server Error" (see
  * docs/API_EXAMPLES.md), which would merge unrelated endpoints into one
- * group. Including `request.method`+`request.url` fixes that. For
- * "error"/"unhandledrejection", `message` is already specific to the actual
- * JS error, so no extra context is needed.
+ * group. Including `request.method`+`request.url` fixes that. Same problem
+ * for "resource" events (`message` is always the generic "Failed to load
+ * resource: img"), fixed the same way with `resource.tagName`+`resource.url`.
+ * For "error"/"unhandledrejection", `message` is already specific to the
+ * actual JS error, so no extra context is needed.
  */
 export function computeFingerprint(event: CapturedEventInput): string {
   const parts = [event.type, event.message];
   if (event.request) {
     parts.push(`${event.request.method} ${event.request.url}`);
+  }
+  if (event.resource) {
+    parts.push(`${event.resource.tagName} ${event.resource.url}`);
   }
   return createHash("sha256").update(parts.join("|"), "utf8").digest("hex");
 }

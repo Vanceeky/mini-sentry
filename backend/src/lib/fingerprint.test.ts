@@ -52,4 +52,30 @@ describe("computeFingerprint", () => {
     const b: CapturedEventInput = { ...a, id: "evt_other" };
     expect(computeFingerprint(a)).toBe(computeFingerprint(b));
   });
+
+  it("groups resource events by tagName+url, not just message", () => {
+    const a: CapturedEventInput = {
+      ...baseEvent,
+      type: "resource",
+      message: "Failed to load resource: img",
+      resource: { url: "https://example.com/one.png", tagName: "img" },
+    };
+    const b: CapturedEventInput = {
+      ...a,
+      resource: { url: "https://example.com/two.png", tagName: "img" },
+    };
+    // Same generic message, different resource URL -> different fingerprint.
+    expect(computeFingerprint(a)).not.toBe(computeFingerprint(b));
+  });
+
+  it("groups identical resource failures together", () => {
+    const a: CapturedEventInput = {
+      ...baseEvent,
+      type: "resource",
+      message: "Failed to load resource: img",
+      resource: { url: "https://example.com/one.png", tagName: "img" },
+    };
+    const b: CapturedEventInput = { ...a, id: "evt_other" };
+    expect(computeFingerprint(a)).toBe(computeFingerprint(b));
+  });
 });

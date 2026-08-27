@@ -6,6 +6,9 @@ const baseEvent: CapturedEventInput = {
   type: "error",
   message: "boom",
   stack: "Error: boom\n  at x",
+  filename: "https://example.com/app.js",
+  line: 42,
+  column: 15,
   timestamp: "2026-01-01T00:00:00.000Z",
   environment: "browser",
   browser: { userAgent: "test-agent" },
@@ -64,6 +67,9 @@ describe("persistEvent", () => {
       type: "error",
       message: "boom",
       stack: baseEvent.stack,
+      filename: baseEvent.filename,
+      line: baseEvent.line,
+      column: baseEvent.column,
       url: baseEvent.url,
       browser: "test-agent",
       environment: "browser",
@@ -100,6 +106,39 @@ describe("persistEvent", () => {
     expect(groupCreateArgs.statusCode).toBe(500);
   });
 
+  it("populates the group's endpoint from resource for resource events, with a null statusCode", async () => {
+    const tx = makeTx();
+    const { persistEvent } = await freshPersistEvent(tx);
+    const resourceEvent: CapturedEventInput = {
+      ...baseEvent,
+      type: "resource",
+      message: "Failed to load resource: img",
+      resource: { url: "https://example.com/broken.png", tagName: "img" },
+    };
+
+    await persistEvent("proj_1", resourceEvent);
+
+    const groupCreateArgs = tx.errorGroup.upsert.mock.calls[0][0].create;
+    expect(groupCreateArgs.endpoint).toBe("img https://example.com/broken.png");
+    expect(groupCreateArgs.statusCode).toBeNull();
+  });
+
+  it("populates the group's statusCode from resource.statusCode when present", async () => {
+    const tx = makeTx();
+    const { persistEvent } = await freshPersistEvent(tx);
+    const resourceEvent: CapturedEventInput = {
+      ...baseEvent,
+      type: "resource",
+      message: "Failed to load resource: img",
+      resource: { url: "https://example.com/broken.png", tagName: "img", statusCode: 404 },
+    };
+
+    await persistEvent("proj_1", resourceEvent);
+
+    const groupCreateArgs = tx.errorGroup.upsert.mock.calls[0][0].create;
+    expect(groupCreateArgs.statusCode).toBe(404);
+  });
+
   it("leaves method/statusCode undefined for non-http events", async () => {
     const tx = makeTx();
     const { persistEvent } = await freshPersistEvent(tx);
@@ -109,6 +148,19 @@ describe("persistEvent", () => {
     const createArgs = tx.errorEvent.create.mock.calls[0][0];
     expect(createArgs.data.method).toBeUndefined();
     expect(createArgs.data.statusCode).toBeUndefined();
+  });
+
+  it("leaves filename/line/column undefined when not provided", async () => {
+    const tx = makeTx();
+    const { persistEvent } = await freshPersistEvent(tx);
+    const { filename: _f, line: _l, column: _c, ...eventWithoutLocation } = baseEvent;
+
+    await persistEvent("proj_1", eventWithoutLocation as CapturedEventInput);
+
+    const createArgs = tx.errorEvent.create.mock.calls[0][0];
+    expect(createArgs.data.filename).toBeUndefined();
+    expect(createArgs.data.line).toBeUndefined();
+    expect(createArgs.data.column).toBeUndefined();
   });
 
   it("returns the post-increment occurrenceCount on a repeat occurrence", async () => {

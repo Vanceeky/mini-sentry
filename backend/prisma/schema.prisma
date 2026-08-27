@@ -83,6 +83,9 @@ model ErrorEvent {
   type        String
   message     String
   stack       String?
+  filename    String?
+  line        Int?
+  column      Int?
   url         String
   method      String?
   statusCode  Int?

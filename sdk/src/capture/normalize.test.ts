@@ -23,6 +23,37 @@ describe("normalizeErrorEvent", () => {
     expect(normalized.message).toBe("Script error.");
     expect(normalized.stack).toBeUndefined();
   });
+
+  it("captures filename/line/column when the browser provides them", () => {
+    const event = new ErrorEvent("error", {
+      message: "boom",
+      error: new Error("boom"),
+      filename: "https://example.com/app.js",
+      lineno: 42,
+      colno: 15,
+    });
+
+    const normalized = normalizeErrorEvent(event);
+
+    expect(normalized.filename).toBe("https://example.com/app.js");
+    expect(normalized.line).toBe(42);
+    expect(normalized.column).toBe(15);
+  });
+
+  it("omits filename/line/column rather than storing meaningless zeros (cross-origin 'Script error.')", () => {
+    const event = new ErrorEvent("error", {
+      message: "Script error.",
+      filename: "",
+      lineno: 0,
+      colno: 0,
+    });
+
+    const normalized = normalizeErrorEvent(event);
+
+    expect(normalized.filename).toBeUndefined();
+    expect(normalized.line).toBeUndefined();
+    expect(normalized.column).toBeUndefined();
+  });
 });
 
 describe("normalizeRejectionEvent", () => {

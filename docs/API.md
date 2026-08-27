@@ -278,9 +278,12 @@ occurrence.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `id` | string | yes | Client-generated event id, max 200 chars |
-| `type` | `"error" \| "unhandledrejection" \| "http"` | yes | |
+| `type` | `"error" \| "unhandledrejection" \| "http" \| "resource"` | yes | |
 | `message` | string | yes | Truncated (not rejected) beyond 4096 chars |
 | `stack` | string | no | Truncated beyond 20000 chars |
+| `filename` | string | no | `type: "error"` only. Truncated beyond 2048 chars |
+| `line` | number | no | `type: "error"` only. 1-indexed, must be positive |
+| `column` | number | no | `type: "error"` only. 1-indexed, must be positive |
 | `url` | string | yes | The page URL. **Not required to be a well-formed absolute URL.** |
 | `timestamp` | string | yes | ISO-8601, e.g. `2026-08-26T10:30:00.000Z` — the client-side event time |
 | `environment` | `"browser"` | yes | Fixed literal |
@@ -289,6 +292,10 @@ occurrence.
 | `request.url` | string | (within `request`) | Truncated beyond 2048 chars |
 | `request.method` | string | (within `request`) | Truncated beyond 16 chars |
 | `request.statusCode` | number | no | 100–599. Absent when the request failed outright (no response) |
+| `resource` | object | only if `type === "resource"` | `{ url, tagName }` — a failed `<img>`/`<script>`/`<link>` load |
+| `resource.url` | string | (within `resource`) | Truncated beyond 2048 chars |
+| `resource.tagName` | `"img" \| "script" \| "link"` | (within `resource`) | Closed set — no other tags are captured |
+| `resource.statusCode` | number | no | Best-effort (Resource Timing API) — often absent for cross-origin resources without a `Timing-Allow-Origin` response header, or on older browsers |
 
 Unknown/extra fields (e.g. any future `metadata`) are silently stripped, never
 stored or echoed back — there is no `metadata` field in the current contract.
@@ -340,9 +347,9 @@ not silently clamped.
 Lists the project's error **groups** (not raw events).
 
 **Query params:** `page`, `limit`, `search` (case-insensitive substring match
-on `message`), `type` (`error` | `unhandledrejection` | `http` — note: this
-contract's SDK calls network failures `"http"`, not `"network"` as an
-earlier illustrative draft of this endpoint suggested), `status` (exact
+on `message`), `type` (`error` | `unhandledrejection` | `http` | `resource` —
+note: this contract's SDK calls network failures `"http"`, not `"network"` as
+an earlier illustrative draft of this endpoint suggested), `status` (exact
 `statusCode` match, 100–599), `environment`, `sort` (`lastSeen` (default) |
 `firstSeen` | `occurrences`, always descending).
 
@@ -373,7 +380,7 @@ is no way to fetch an unbounded occurrence list.
 ```json
 {
   "success": true,
-  "group": { "id": "...", "message": "...", "type": "http", "endpoint": "GET /api/users", "statusCode": 500, "environment": "browser", "firstSeenAt": "...", "lastSeenAt": "...", "occurrenceCount": 3, "stack": null },
+  "group": { "id": "...", "message": "...", "type": "http", "endpoint": "GET /api/users", "statusCode": 500, "environment": "browser", "firstSeenAt": "...", "lastSeenAt": "...", "occurrenceCount": 3, "stack": null, "filename": null, "line": null, "column": null },
   "occurrences": {
     "data": [{ "id": "...", "timestamp": "...", "browser": "...", "url": "...", "method": "GET", "statusCode": 500 }],
     "pagination": { "page": 1, "limit": 20, "total": 3 }
@@ -381,10 +388,12 @@ is no way to fetch an unbounded occurrence list.
 }
 ```
 
-`group.stack` comes from the **most recent** occurrence (not the first) —
-"what does this error look like right now" is what a developer debugging it
-actually wants; it's `null` for `"http"`/`"unhandledrejection"` events that
-never had one. `occurrences.data` is always ordered most-recent-first.
+`group.stack`, `group.filename`, `group.line`, and `group.column` all come
+from the **most recent** occurrence (not the first) — "what does this error
+look like right now" is what a developer debugging it actually wants; all
+four are `null` for `"http"`/`"unhandledrejection"` events, or for an
+`"error"` event whose browser didn't provide a source location.
+`occurrences.data` is always ordered most-recent-first.
 
 **Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `404 ERROR_GROUP_NOT_FOUND`, `500 INTERNAL_ERROR`.
 
@@ -566,6 +575,9 @@ resets).
   — the current SDK contract has no data for either (no user-agent parsing,
   no `metadata` field on `CapturedEvent`). They're reserved, not derived or
   faked.
+- Resource-load-failure capture (`type: "resource"`) only covers `<img>`,
+  `<script src>`, and `<link href>` — not `<audio>`/`<video>`/`<iframe>` or
+  assets loaded via CSS (`background-image`, `@import`).
 - CORS is a single global allowlist (env var), not per-project yet.
 - Rate limiting is in-memory and per-process (see Rate Limiting above) — not
   correct for a horizontally-scaled multi-instance deployment.

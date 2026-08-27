@@ -42,6 +42,10 @@ describe("listErrorGroupsQuerySchema", () => {
     expect(listErrorGroupsQuerySchema.safeParse({ type: "http" }).success).toBe(true);
   });
 
+  it("accepts 'resource' as a valid type", () => {
+    expect(listErrorGroupsQuerySchema.safeParse({ type: "resource" }).success).toBe(true);
+  });
+
   it("rejects an invalid type (e.g. the brief's illustrative 'network', not this contract's 'http')", () => {
     expect(listErrorGroupsQuerySchema.safeParse({ type: "network" }).success).toBe(false);
   });

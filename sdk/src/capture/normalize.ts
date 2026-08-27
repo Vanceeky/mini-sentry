@@ -12,6 +12,9 @@ export function normalizeErrorEvent(event: ErrorEvent): CapturedEvent {
     type: "error",
     message,
     stack,
+    filename: event.filename || undefined,
+    line: event.lineno > 0 ? event.lineno : undefined,
+    column: event.colno > 0 ? event.colno : undefined,
     timestamp: new Date().toISOString(),
     ...captureEnvironment(),
   };

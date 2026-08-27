@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MESSAGE_MAX_LEN } from "./constants";
+import { MESSAGE_MAX_LEN, URL_MAX_LEN } from "./constants";
 import { capturedEventSchema, normalizeEvent } from "./eventSchema";
 
 const baseErrorEvent = {
@@ -55,6 +55,54 @@ describe("capturedEventSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts a valid resource event", () => {
+    const event = {
+      ...baseErrorEvent,
+      type: "resource" as const,
+      message: "Failed to load resource: img",
+      resource: { url: "https://example.com/broken.png", tagName: "img" as const },
+    };
+    expect(capturedEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it("rejects a type:'resource' event with no resource", () => {
+    const result = capturedEventSchema.safeParse({ ...baseErrorEvent, type: "resource" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a resource event with an unsupported tagName", () => {
+    const event = {
+      ...baseErrorEvent,
+      type: "resource" as const,
+      resource: { url: "https://example.com/broken.mp3", tagName: "audio" },
+    };
+    expect(capturedEventSchema.safeParse(event).success).toBe(false);
+  });
+
+  it("accepts a resource event with a statusCode", () => {
+    const event = {
+      ...baseErrorEvent,
+      type: "resource" as const,
+      resource: { url: "https://example.com/broken.png", tagName: "img" as const, statusCode: 404 },
+    };
+    expect(capturedEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it("rejects a resource event with an out-of-range statusCode", () => {
+    const tooLow = {
+      ...baseErrorEvent,
+      type: "resource" as const,
+      resource: { url: "https://example.com/broken.png", tagName: "img" as const, statusCode: 50 },
+    };
+    const tooHigh = {
+      ...baseErrorEvent,
+      type: "resource" as const,
+      resource: { url: "https://example.com/broken.png", tagName: "img" as const, statusCode: 700 },
+    };
+    expect(capturedEventSchema.safeParse(tooLow).success).toBe(false);
+    expect(capturedEventSchema.safeParse(tooHigh).success).toBe(false);
+  });
+
   it("rejects a missing required field", () => {
     const { message: _drop, ...withoutMessage } = baseErrorEvent;
     expect(capturedEventSchema.safeParse(withoutMessage).success).toBe(false);
@@ -70,6 +118,21 @@ describe("capturedEventSchema", () => {
 
   it("rejects an environment other than 'browser'", () => {
     expect(capturedEventSchema.safeParse({ ...baseErrorEvent, environment: "server" }).success).toBe(false);
+  });
+
+  it("accepts an error event with filename/line/column", () => {
+    const event = { ...baseErrorEvent, filename: "https://example.com/app.js", line: 42, column: 15 };
+    expect(capturedEventSchema.safeParse(event).success).toBe(true);
+  });
+
+  it("rejects a zero line number", () => {
+    const event = { ...baseErrorEvent, line: 0 };
+    expect(capturedEventSchema.safeParse(event).success).toBe(false);
+  });
+
+  it("rejects a negative column number", () => {
+    const event = { ...baseErrorEvent, column: -1 };
+    expect(capturedEventSchema.safeParse(event).success).toBe(false);
   });
 
   it("strips unknown top-level fields rather than storing them", () => {
@@ -97,5 +160,31 @@ describe("normalizeEvent", () => {
   it("leaves stack undefined when not provided", () => {
     const normalized = normalizeEvent(baseErrorEvent);
     expect(normalized.stack).toBeUndefined();
+  });
+
+  it("truncates an overlong filename", () => {
+    const event = { ...baseErrorEvent, filename: "https://example.com/" + "x".repeat(URL_MAX_LEN + 100) };
+    const normalized = normalizeEvent(event);
+    expect(normalized.filename?.length).toBe(URL_MAX_LEN);
+  });
+
+  it("leaves filename undefined when not provided", () => {
+    const normalized = normalizeEvent(baseErrorEvent);
+    expect(normalized.filename).toBeUndefined();
+  });
+
+  it("truncates an overlong resource.url", () => {
+    const event = {
+      ...baseErrorEvent,
+      type: "resource" as const,
+      resource: { url: "https://example.com/" + "x".repeat(URL_MAX_LEN + 100), tagName: "img" as const },
+    };
+    const normalized = normalizeEvent(event);
+    expect(normalized.resource?.url.length).toBe(URL_MAX_LEN);
+  });
+
+  it("leaves resource undefined when not provided", () => {
+    const normalized = normalizeEvent(baseErrorEvent);
+    expect(normalized.resource).toBeUndefined();
   });
 });

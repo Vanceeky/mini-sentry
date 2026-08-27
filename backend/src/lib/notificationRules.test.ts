@@ -58,6 +58,16 @@ describe("determineNotificationType", () => {
   it("returns null when no trigger applies (ordinary repeat occurrence)", () => {
     expect(determineNotificationType(baseEvent, basePersisted)).toBeNull();
   });
+
+  it("never returns SERIOUS_ERROR for a resource event (no HTTP status exists)", () => {
+    const resourceEvent: CapturedEventInput = {
+      ...baseEvent,
+      type: "resource",
+      resource: { url: "https://example.com/broken.png", tagName: "img" },
+    };
+    expect(determineNotificationType(resourceEvent, basePersisted)).toBeNull();
+    expect(determineNotificationType(resourceEvent, { ...basePersisted, isNewGroup: true })).toBe("NEW_ERROR");
+  });
 });
 
 describe("buildNotificationPayload", () => {
@@ -84,5 +94,15 @@ describe("buildNotificationPayload", () => {
     const payload = buildNotificationPayload("REACTIVATED_ERROR", "proj_1", httpEvent, basePersisted);
     expect(payload.message).toBe("ERR GET /api/users");
     expect(payload.title).toBe("Error Reactivated");
+  });
+
+  it("formats 'Failed to load <tagName>: <url>' for a resource event", () => {
+    const resourceEvent: CapturedEventInput = {
+      ...baseEvent,
+      type: "resource",
+      resource: { url: "https://example.com/broken.png", tagName: "img" },
+    };
+    const payload = buildNotificationPayload("NEW_ERROR", "proj_1", resourceEvent, basePersisted);
+    expect(payload.message).toBe("Failed to load img: https://example.com/broken.png");
   });
 });

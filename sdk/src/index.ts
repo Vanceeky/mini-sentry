@@ -1,5 +1,6 @@
 import { installGlobalErrorListeners } from "./capture/listeners";
 import { installFetchInterceptor } from "./capture/network";
+import { installResourceErrorListener } from "./capture/resources";
 import { getRecordedEvents, recordEvent } from "./capture/store";
 import type { CapturedEvent } from "./capture/types";
 import { resolveConfig, validateConfig } from "./core/config";
@@ -43,6 +44,7 @@ export function init(config: MiniSentryConfig): void {
     };
     installGlobalErrorListeners(onCapture);
     installFetchInterceptor(onCapture);
+    installResourceErrorListener(onCapture);
   }, "init() failed unexpectedly");
 }
 

@@ -87,11 +87,21 @@ export async function getErrorGroupDetail(projectId: string, groupId: string, oc
       take: occurrencesQuery.limit,
     }),
     prisma.errorEvent.count({ where: { groupId } }),
-    prisma.errorEvent.findFirst({ where: { groupId }, orderBy: { createdAt: "desc" }, select: { stack: true } }),
+    prisma.errorEvent.findFirst({
+      where: { groupId },
+      orderBy: { createdAt: "desc" },
+      select: { stack: true, filename: true, line: true, column: true },
+    }),
   ]);
 
   return {
-    group: { ...group, stack: mostRecent?.stack ?? null },
+    group: {
+      ...group,
+      stack: mostRecent?.stack ?? null,
+      filename: mostRecent?.filename ?? null,
+      line: mostRecent?.line ?? null,
+      column: mostRecent?.column ?? null,
+    },
     occurrences: {
       data: occurrences,
       pagination: { page: occurrencesQuery.page, limit: occurrencesQuery.limit, total } satisfies Pagination,

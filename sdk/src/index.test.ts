@@ -87,6 +87,22 @@ describe("init", () => {
     expect(events[0].message).toBe("rejected");
   });
 
+  it("captures a failed resource load after a successful init and exposes it", async () => {
+    const { init, getCapturedEvents } = await freshInit();
+    init({ apiKey: "project_xxx" });
+
+    const img = document.createElement("img");
+    img.src = "https://example.com/broken.png";
+    document.body.appendChild(img);
+    img.dispatchEvent(new Event("error"));
+    img.remove();
+
+    const events = getCapturedEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("resource");
+    expect(events[0].resource).toEqual({ url: "https://example.com/broken.png", tagName: "img" });
+  });
+
   it("does not capture anything when init() was invalid", async () => {
     const { init, getCapturedEvents } = await freshInit();
     init({} as never);

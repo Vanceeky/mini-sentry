@@ -12,6 +12,9 @@ function formatErrorSummary(event: CapturedEventInput): string {
   if (event.type === "http" && event.request) {
     return `${event.request.statusCode ?? "ERR"} ${event.request.method} ${event.request.url}`;
   }
+  if (event.type === "resource" && event.resource) {
+    return `Failed to load ${event.resource.tagName}: ${event.resource.url}`;
+  }
   return event.message;
 }
 

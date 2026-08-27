@@ -8,7 +8,7 @@ const limitSchema = z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).default(D
 // Matches the SDK's actual CapturedEventType (see sdk/src/capture/types.ts).
 // The brief's own example used "network" as an illustrative value, but this
 // deployment's contract calls that type "http" — see DECISIONS.md.
-const eventTypeSchema = z.enum(["error", "unhandledrejection", "http"]);
+const eventTypeSchema = z.enum(["error", "unhandledrejection", "http", "resource"]);
 
 export const listErrorGroupsQuerySchema = z.object({
   page: pageSchema,
