@@ -1,4 +1,4 @@
-# Publishing `@mini-sentry/canary` to npm
+# Publishing `@vanceeq/canary` to npm
 
 Step-by-step walkthrough for Option 2 in `DEPLOYMENT.md`. Nothing has
 actually been published yet — `sdk/package.json` is prepared (name, version,
@@ -6,10 +6,14 @@ no longer private) but `npm publish` hasn't been run.
 
 ## Already done
 
-- **Package name decided**: `@mini-sentry/canary` — scoped under the
-  `mini-sentry` npm team/org (already created, so scope ownership is
-  settled — no need to claim it).
-- **`sdk/package.json` updated**: `"name": "@mini-sentry/canary"`,
+- **Package name decided**: `@vanceeq/canary` — scoped under the `vanceeq`
+  npm org (already created, so scope ownership is settled — no need to
+  claim it). `mini-sentry` is a *team* inside the `vanceeq` org, not a
+  separate scope — npm teams don't have their own scope, they're just
+  permission groups for managing package access within an org. First
+  attempt tried `@mini-sentry/canary` and got a 404 on publish for exactly
+  this reason; corrected to `@vanceeq/canary` once the mixup was found.
+- **`sdk/package.json` updated**: `"name": "@vanceeq/canary"`,
   `"version": "0.1.0"`, `"private": true` removed, plus a `"repository"`
   field pointing back at this repo (`directory: "sdk"`, so npmjs.com's
   package page deep-links correctly).
@@ -24,7 +28,7 @@ no longer private) but `npm publish` hasn't been run.
 Sign up at [npmjs.com/signup](https://www.npmjs.com/signup). npm requires
 (or strongly pushes) two-factor auth for publishing — enable it under
 Account Settings, you'll need it in step 3. Make sure your account has been
-added as a member of the `mini-sentry` npm org/team with publish access.
+added as a member of the `vanceeq` npm org with publish access.
 
 ## 2. Run the pre-publish checklist
 
@@ -52,7 +56,7 @@ credentials — no one else can run it for you.**
 ```bash
 npm publish -w sdk --access public
 ```
-`--access public` is required the first time a scoped (`@mini-sentry/...`)
+`--access public` is required the first time a scoped (`@vanceeq/...`)
 package is published — scoped packages default to restricted/private
 otherwise. Subsequent publishes remember this once set, but there's no harm
 including it every time.
@@ -60,13 +64,13 @@ including it every time.
 ## 5. Verify it actually landed
 
 ```bash
-npm view @mini-sentry/canary           # shows the published metadata
+npm view @vanceeq/canary           # shows the published metadata
 ```
-- Check `https://www.npmjs.com/package/@mini-sentry/canary` in a browser.
-- In a scratch directory: `npm install @mini-sentry/canary` and confirm it
+- Check `https://www.npmjs.com/package/@vanceeq/canary` in a browser.
+- In a scratch directory: `npm install @vanceeq/canary` and confirm it
   resolves.
 - jsDelivr/unpkg mirror automatically but can take a few minutes to catch
-  up: `https://cdn.jsdelivr.net/npm/@mini-sentry/canary/dist/canary.min.js`.
+  up: `https://cdn.jsdelivr.net/npm/@vanceeq/canary/dist/canary.min.js`.
 
 ## 6. Publishing an update later
 

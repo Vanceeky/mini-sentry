@@ -6,7 +6,7 @@ built phase by phase as an npm workspaces monorepo.
 ## Structure
 
 ```
-sdk/      the SDK itself (@mini-sentry/canary) — see sdk/README.md for API docs
+sdk/      the SDK itself (@vanceeq/canary) — see sdk/README.md for API docs
 demo/     a minimal Vite + vanilla-TS app that exercises every SDK capability
 backend/  the REST API (@mini-sentry/backend) — Next.js + PostgreSQL/Prisma
 web/      standalone Next.js dashboard (landing page, auth, projects, error

@@ -9,7 +9,7 @@ const STEPS = [
   {
     n: "02",
     title: "Install the SDK",
-    body: "npm install @mini-sentry/canary, or drop in the script-tag bundle. Either way, one init() call.",
+    body: "npm install @vanceeq/canary, or drop in the script-tag bundle. Either way, one init() call.",
   },
   {
     n: "03",

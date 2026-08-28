@@ -716,24 +716,32 @@ re-litigate them without cause.
   does exactly that in one extra `build:cdn` script step, without changing
   the existing ESM/`tsc` output npm consumers get. (Phase 0's own decisions
   log flagged this exact revisit-later question — see Phase 0 above.)
-- **SDK package renamed `@mini-sentry/sdk` → `@mini-sentry/canary`, global
+- **SDK package renamed `@mini-sentry/sdk` → `@vanceeq/canary`, global
   `MiniSentry` → `Canary`**, ahead of actually publishing to npm. `sdk` as a
   package name is a description, not an identity, and `@mini-sentry/sdk`
   read as generic/forgettable for something meant to be publicly
-  installable; `mini-sentry` stays the umbrella project/org name (backend,
-  dashboard branding, npm scope), `canary` is specifically this SDK product
-  — the metaphor (an early-warning signal) fits an error monitor better
-  than a literal descriptor does. Considered `canary-sentry` first and
-  rejected it — it reintroduced the exact "sentry" trademark-adjacency the
-  rename was meant to get away from, while also being longer. Checked npm
-  availability before committing: bare `canary` was already taken
-  (unrelated package); `canaryjs`/`canarykit` were free but the user had
-  already created the `mini-sentry` npm org, so the scoped
-  `@mini-sentry/canary` was the natural fit — no need to fall back to an
-  unscoped alternative. This is a real breaking rename of the public API
-  surface (import specifier, exported `CanaryConfig` type, the CDN global,
-  the built filename `canary.min.js`) — done now, before any real npm
-  publish, specifically so no one has to migrate off the old name later.
+  installable; `canary` is specifically this SDK product — the metaphor (an
+  early-warning signal) fits an error monitor better than a literal
+  descriptor does; `mini-sentry` stays the umbrella project name (backend,
+  dashboard branding). Considered `canary-sentry` first and rejected it —
+  it reintroduced the exact "sentry" trademark-adjacency the rename was
+  meant to get away from, while also being longer. Checked npm availability
+  before committing: bare `canary` was already taken (unrelated package);
+  `canaryjs`/`canarykit` were free.
+  **Scope correction**: initially published as `@mini-sentry/canary`,
+  assuming the user's npm org was named `mini-sentry` — first real
+  `npm publish` attempt 404'd. Turned out `vanceeq` is the actual npm
+  **organization** (the real scope) the user created; `mini-sentry` is a
+  *team* nested inside that org, and npm teams don't carry their own
+  scope — they're permission groups for managing package access within an
+  org, confirmed via npm's own docs (no rename-an-org feature exists;
+  renaming would mean creating a whole new org and migrating everything by
+  hand, not worth it here). Corrected to `@vanceeq/canary` — the actually
+  correct, working scope — immediately after. This is a real breaking
+  rename of the public API surface (import specifier, exported
+  `CanaryConfig` type, the CDN global, the built filename `canary.min.js`)
+  — done now, before any real npm publish succeeds, specifically so no one
+  has to migrate off an old name later.
   Every reference across `sdk/`, `demo/`, `web/`, and `docs/` was swept and
   updated; the historical Phase 0–13 entries above and in `PROGRESS.md`
   were deliberately left saying `@mini-sentry/sdk`, since that was the

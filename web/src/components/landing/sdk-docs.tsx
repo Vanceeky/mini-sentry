@@ -1,9 +1,9 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CodeBlock } from "./code-block";
 
-const NPM_INSTALL = `npm install @mini-sentry/canary`;
+const NPM_INSTALL = `npm install @vanceeq/canary`;
 
-const NPM_INIT = `import { init } from "@mini-sentry/canary";
+const NPM_INIT = `import { init } from "@vanceeq/canary";
 
 init({
   apiKey: "your_project_key",

@@ -1341,26 +1341,33 @@ work is new scope, not something to start proactively" guardrail).
 Not yet published — `npm publish` requires the user's own npm login (2FA),
 which can't be run on their behalf. Everything up to that point is done:
 
-- Renamed `@mini-sentry/sdk` → `@mini-sentry/canary` (npm scope `mini-sentry`
-  already exists as a real npm team the user created), CDN global `MiniSentry`
-  → `Canary`, built filename `mini-sentry.min.js` → `canary.min.js`, exported
+- Renamed `@mini-sentry/sdk` → `@vanceeq/canary`, CDN global `MiniSentry` →
+  `Canary`, built filename `mini-sentry.min.js` → `canary.min.js`, exported
   `MiniSentryConfig` type → `CanaryConfig`. Full rationale (name candidates
   considered/rejected, why now rather than after publishing) in
   `plans/DECISIONS.md`'s Post-Phase-13 section.
-- Every reference swept and updated: `sdk/package.json` (name, version bumped
+- **Scope correction, found on the first real publish attempt**: initially
+  shipped as `@mini-sentry/canary`, assuming the user's npm org was named
+  `mini-sentry` — `npm publish` 404'd. Real cause: `vanceeq` is the actual
+  npm organization (the real scope); `mini-sentry` is a *team* nested
+  inside it, and npm teams don't carry their own scope. Corrected to
+  `@vanceeq/canary` immediately after — see `plans/DECISIONS.md` for the
+  full story, including why renaming the org itself wasn't the right fix.
+- Every reference swept and updated (twice — once for the initial rename,
+  again for the scope correction): `sdk/package.json` (name, version bumped
   0.0.0 → 0.1.0, `"private"` removed, `"repository"` field added),
   `demo/package.json` + `demo/src/main.ts`, `web/public/demo.html`, the
   landing page's SDK docs section, the dashboard's create-project snippet,
   `sdk/README.md`/`DEPLOYMENT.md`/`PUBLISHING.md`, root `README.md`,
   `docs/FRONTEND_HANDOFF.md`. Historical Phase 0–13 entries in this file and
   `DECISIONS.md` deliberately left unchanged (accurate at the time).
-- Verified after the rename: SDK 68/68 tests passing, full repo typecheck
+- Verified after each rename: SDK 68/68 tests passing, full repo typecheck
   clean (including `demo/`, which imports the renamed package), `demo`/`web`
   both build clean, `npm pack -w sdk --dry-run` confirms the correct
-  `@mini-sentry/canary@0.1.0` package contents (34 files, 22.4KB, still just
+  `@vanceeq/canary@0.1.0` package contents (34 files, 22.4KB, still just
   `dist/` + `package.json` + `README.md`). Live-served and curl-verified:
   `canary.min.js` resolves, the old `mini-sentry.min.js` path correctly
-  404s, demo page and landing page both reflect the new name.
+  404s, demo page and landing page both reflect the current name.
 - `sdk/PUBLISHING.md` has the exact remaining steps (npm login, `npm
   publish -w sdk --access public`) for whenever the user is ready to run them.
 

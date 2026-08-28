@@ -1,4 +1,4 @@
-# @mini-sentry/canary
+# @vanceeq/canary
 
 Framework-agnostic client-side error monitoring SDK. Zero runtime dependencies.
 
@@ -10,7 +10,7 @@ then, consumed locally via the npm workspace in this repo (see the root `README.
 ### npm / bundler
 
 ```ts
-import { init, getCapturedEvents } from "@mini-sentry/canary";
+import { init, getCapturedEvents } from "@vanceeq/canary";
 
 init({
   apiKey: "your_project_key",

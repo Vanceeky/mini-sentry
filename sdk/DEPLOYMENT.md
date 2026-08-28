@@ -33,9 +33,11 @@ re-copying the file to every place that hosts it.
 
 ## Option 2 — Publish to npm (unlocks `npm install` + free CDN mirrors)
 
-`sdk/package.json` is `@mini-sentry/canary`, version `0.1.0`, no longer
-`"private"` — ready to publish, not yet published. The `mini-sentry` npm
-team/org already exists, so scope ownership is settled. Full step-by-step
+`sdk/package.json` is `@vanceeq/canary`, version `0.1.0`, no longer
+`"private"` — ready to publish, not yet published. The `vanceeq` npm org
+already exists, so scope ownership is settled (`mini-sentry` is a *team*
+inside that org, not a separate scope — teams don't have their own npm
+scope, they're just permission groups within an org). Full step-by-step
 walkthrough: `sdk/PUBLISHING.md`. Summary:
 
 1. Verify the package looks right before publishing:
@@ -43,18 +45,18 @@ walkthrough: `sdk/PUBLISHING.md`. Summary:
    npm run typecheck -w sdk && npm run test -w sdk && npm run build -w sdk
    npm pack -w sdk --dry-run   # shows exactly what would be published — should be dist/ + package.json + README
    ```
-2. `npm login` (needs your npm account, with access to the `mini-sentry` org).
+2. `npm login` (needs your npm account, with access to the `vanceeq` org).
 3. `npm publish -w sdk --access public` (the `@scope/name` format defaults
    to private, `--access public` is required the first time).
 
 Once published:
-- `npm install @mini-sentry/canary` works anywhere.
+- `npm install @vanceeq/canary` works anywhere.
 - jsDelivr and unpkg mirror any public npm package automatically — no
   separate CDN deploy step:
   ```html
-  <script src="https://cdn.jsdelivr.net/npm/@mini-sentry/canary/dist/canary.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@vanceeq/canary/dist/canary.min.js"></script>
   <!-- or -->
-  <script src="https://unpkg.com/@mini-sentry/canary/dist/canary.min.js"></script>
+  <script src="https://unpkg.com/@vanceeq/canary/dist/canary.min.js"></script>
   ```
 - New versions require repeating step 1–3 with a bumped version — npm
   package versions are immutable, a version number can never be republished.
@@ -66,7 +68,7 @@ public npm registry — either:
 - **GitHub Packages**: add a `publishConfig.registry` pointing at
   `npm.pkg.github.com` in `sdk/package.json`, authenticate with a GitHub
   token that has `write:packages`, then `npm publish -w sdk`.
-- **npm private scope**: same `npm publish` flow, but the `mini-sentry`
+- **npm private scope**: same `npm publish` flow, but the `vanceeq`
   org/scope is set to private on npmjs.com (requires a paid npm org).
 
 No CDN mirroring in this option (jsDelivr/unpkg only mirror public
