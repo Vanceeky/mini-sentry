@@ -1364,6 +1364,9 @@ which can't be run on their behalf. Everything up to that point is done:
 - `sdk/PUBLISHING.md` has the exact remaining steps (npm login, `npm
   publish -w sdk --access public`) for whenever the user is ready to run them.
 
+**Commit:** `7b4066c` — "sdk: rename @mini-sentry/sdk to @mini-sentry/canary,
+prep for npm publish"
+
 **Next:** none queued. Future work (a real push provider, per-project CORS,
 password reset, response-body capture with real redaction, `web/` test
 coverage, actually running `npm publish`, etc.) stays new scope to confirm
