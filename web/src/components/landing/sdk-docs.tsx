@@ -10,7 +10,7 @@ init({
   endpoint: "https://your-backend.example.com/api/v1/events",
 });`;
 
-const SCRIPT_TAG = `<script src="/canary.min.js"></script>
+const SCRIPT_TAG = `<script src="https://cdn.jsdelivr.net/npm/@vanceeq/canary/dist/canary.min.js"></script>
 <script>
   Canary.init({
     apiKey: "your_project_key",
@@ -25,8 +25,9 @@ const CONFIG_ROWS = [
 ];
 
 const CAPTURES = [
-  "Uncaught JS errors and unhandled promise rejections",
+  "Uncaught JS errors and unhandled promise rejections, with filename/line/column",
   "Non-2xx fetch responses and outright network failures",
+  "Broken <img>/<script>/<link> loads — fetch alone never sees these",
   "Nothing from XMLHttpRequest — only fetch is wrapped",
 ];
 
@@ -59,10 +60,13 @@ export function SdkDocs() {
           <TabsContent value="script" className="mt-5 space-y-4">
             <CodeBlock code={SCRIPT_TAG} lang="html" label="index.html" />
             <p className="text-sm text-muted-foreground">
-              Not on a public CDN yet — run <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]">npm run build -w sdk</code>{" "}
-              in the SDK repo, copy the generated{" "}
+              Served via jsDelivr, mirroring the published npm package — no build
+              step, no npm install. Prefer not to depend on an external CDN?
+              Self-host the same file instead: run{" "}
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]">npm run build -w sdk</code>{" "}
+              and copy{" "}
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]">dist/canary.min.js</code>{" "}
-              into your own static assets, and reference it from there.
+              into your own static assets.
             </p>
           </TabsContent>
         </Tabs>

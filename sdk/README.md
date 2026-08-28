@@ -2,8 +2,8 @@
 
 Framework-agnostic client-side error monitoring SDK. Zero runtime dependencies.
 
-Not published yet — see `PUBLISHING.md` for the exact steps once you're ready. Until
-then, consumed locally via the npm workspace in this repo (see the root `README.md`).
+Published on npm — `npm install @vanceeq/canary`. (Inside this monorepo, still
+consumed locally via the npm workspace — see the root `README.md`.)
 
 ## Usage
 
@@ -18,14 +18,14 @@ init({
 });
 ```
 
-### Script tag (no build step)
+### Script tag (no build step, no npm)
 
-`npm run build -w sdk` also emits an IIFE bundle at `dist/canary.min.js`
-(via esbuild, `build:cdn` script) that exposes a `Canary` global — for a plain
-HTML page with no bundler:
+For a plain HTML page — including a legacy system with no build tooling — the
+published package emits an IIFE bundle (`dist/canary.min.js`, exposes a `Canary`
+global) that jsDelivr and unpkg mirror automatically, no self-hosting needed:
 
 ```html
-<script src="/path/to/canary.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@vanceeq/canary/dist/canary.min.js"></script>
 <script>
   Canary.init({
     apiKey: "your_project_key",
@@ -33,9 +33,20 @@ HTML page with no bundler:
   });
 </script>
 ```
+(`https://unpkg.com/@vanceeq/canary/dist/canary.min.js` works the same way, if
+you'd rather not depend on jsDelivr specifically.)
 
-This isn't hosted on a CDN yet — the package isn't published to npm yet (see
-`PUBLISHING.md`), so there's no jsDelivr/unpkg URL to point at until then.
+Prefer not to depend on an external CDN? Self-host the same file instead —
+`npm run build -w sdk` produces it locally too:
+
+```bash
+npm run build -w sdk
+cp sdk/dist/canary.min.js /path/to/your-site/assets/js/
+```
+```html
+<script src="/assets/js/canary.min.js"></script>
+<script>Canary.init({ apiKey: "your_project_key", endpoint: "..." });</script>
+```
 
 `init()` never throws, even with an invalid config — a malformed call is logged as a
 `console.warn` and leaves the SDK in a no-op state rather than affecting your app.

@@ -93,10 +93,11 @@ password reset, Redis-backed rate limiting for multi-instance deployment, etc.),
 none of which are in progress.
 
 **Since Phase 13**, as new scope confirmed incrementally: the `web/` dashboard
-(landing page, auth, projects, error browsing — see above); an SDK script-tag/CDN
-build (`sdk/dist/canary.min.js`, a `Canary` global, no bundler needed);
-`filename`/`line`/`column` capture for JS errors; and a new `"resource"` event type
-capturing failed `<img>`/`<script>`/`<link>` loads (with a best-effort status code
-via the Resource Timing API), which the original `fetch`-only network capture never
-saw. Details and rationale in `plans/PROGRESS.md`'s and `plans/DECISIONS.md`'s
+(landing page, auth, projects, error browsing — see above); the SDK published on
+npm as **`@vanceeq/canary`** (`npm install @vanceeq/canary`, or a script tag via
+jsDelivr/unpkg for no-build-step sites — see `sdk/README.md`); `filename`/`line`/
+`column` capture for JS errors; and a new `"resource"` event type capturing
+failed `<img>`/`<script>`/`<link>` loads (with a best-effort status code via the
+Resource Timing API), which the original `fetch`-only network capture never saw.
+Details and rationale in `plans/PROGRESS.md`'s and `plans/DECISIONS.md`'s
 "Post-Phase-13" sections.

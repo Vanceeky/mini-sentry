@@ -33,12 +33,22 @@ re-copying the file to every place that hosts it.
 
 ## Option 2 — Publish to npm (unlocks `npm install` + free CDN mirrors)
 
-`sdk/package.json` is `@vanceeq/canary`, version `0.1.0`, no longer
-`"private"` — ready to publish, not yet published. The `vanceeq` npm org
-already exists, so scope ownership is settled (`mini-sentry` is a *team*
-inside that org, not a separate scope — teams don't have their own npm
-scope, they're just permission groups within an org). Full step-by-step
-walkthrough: `sdk/PUBLISHING.md`. Summary:
+**Already done** — `@vanceeq/canary@0.1.1` is live on npm (`0.1.0` also
+exists but was broken for real npm consumers, see `plans/DECISIONS.md`;
+`0.1.1` is the one anyone should actually depend on). The `vanceeq` npm org
+was the scope used (`mini-sentry` was tried first — it's a *team* inside
+that org, not a separate scope, so it 404'd — see `sdk/PUBLISHING.md`).
+Confirmed live:
+- `npm install @vanceeq/canary` works anywhere.
+- jsDelivr and unpkg mirror it automatically, confirmed via live `curl`
+  checks — no separate CDN deploy step, no self-hosting required:
+  ```html
+  <script src="https://cdn.jsdelivr.net/npm/@vanceeq/canary/dist/canary.min.js"></script>
+  <!-- or -->
+  <script src="https://unpkg.com/@vanceeq/canary/dist/canary.min.js"></script>
+  ```
+
+Full step-by-step walkthrough (for publishing the *next* version): `sdk/PUBLISHING.md`. Summary:
 
 1. Verify the package looks right before publishing:
    ```bash
@@ -49,17 +59,8 @@ walkthrough: `sdk/PUBLISHING.md`. Summary:
 3. `npm publish -w sdk --access public` (the `@scope/name` format defaults
    to private, `--access public` is required the first time).
 
-Once published:
-- `npm install @vanceeq/canary` works anywhere.
-- jsDelivr and unpkg mirror any public npm package automatically — no
-  separate CDN deploy step:
-  ```html
-  <script src="https://cdn.jsdelivr.net/npm/@vanceeq/canary/dist/canary.min.js"></script>
-  <!-- or -->
-  <script src="https://unpkg.com/@vanceeq/canary/dist/canary.min.js"></script>
-  ```
-- New versions require repeating step 1–3 with a bumped version — npm
-  package versions are immutable, a version number can never be republished.
+New versions require repeating step 1–3 with a bumped version — npm
+package versions are immutable, a version number can never be republished.
 
 ## Option 3 — Private registry (if public npm isn't wanted)
 

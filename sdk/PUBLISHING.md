@@ -1,8 +1,10 @@
 # Publishing `@vanceeq/canary` to npm
 
-Step-by-step walkthrough for Option 2 in `DEPLOYMENT.md`. Nothing has
-actually been published yet — `sdk/package.json` is prepared (name, version,
-no longer private) but `npm publish` hasn't been run.
+Step-by-step walkthrough for Option 2 in `DEPLOYMENT.md`. **Already
+published** — `@vanceeq/canary@0.1.1` is live (`0.1.0` also exists, but was
+broken for real npm consumers — see `plans/DECISIONS.md` — `0.1.1` is the
+one to actually depend on). This doc stays as the reference for publishing
+the *next* version, whenever that's needed.
 
 ## Already done
 
@@ -83,7 +85,8 @@ repeat step 4 (`--access public` no longer strictly needed, but harmless).
 
 ## 7. After a real publish, one doc update
 
-`sdk/README.md` currently says *"Not published yet — see PUBLISHING.md."*
-— that line becomes false the moment step 4 succeeds. Update it (and
-`DEPLOYMENT.md`'s Option 2 framing) once you've actually published, not
-before.
+`sdk/README.md` and `DEPLOYMENT.md`'s Option 2 framing need updating once a
+publish actually succeeds, so they don't keep saying "not published yet" —
+already done for the `0.1.1` publish (README now points at the live
+jsDelivr/unpkg CDN URLs directly). Repeat this step for future versions if
+the docs ever drift from what's actually live.
