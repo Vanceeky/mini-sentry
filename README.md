@@ -6,7 +6,7 @@ built phase by phase as an npm workspaces monorepo.
 ## Structure
 
 ```
-sdk/      the SDK itself (@mini-sentry/sdk) — see sdk/README.md for API docs
+sdk/      the SDK itself (@mini-sentry/canary) — see sdk/README.md for API docs
 demo/     a minimal Vite + vanilla-TS app that exercises every SDK capability
 backend/  the REST API (@mini-sentry/backend) — Next.js + PostgreSQL/Prisma
 web/      standalone Next.js dashboard (landing page, auth, projects, error
@@ -94,7 +94,7 @@ none of which are in progress.
 
 **Since Phase 13**, as new scope confirmed incrementally: the `web/` dashboard
 (landing page, auth, projects, error browsing — see above); an SDK script-tag/CDN
-build (`sdk/dist/mini-sentry.min.js`, a `MiniSentry` global, no bundler needed);
+build (`sdk/dist/canary.min.js`, a `Canary` global, no bundler needed);
 `filename`/`line`/`column` capture for JS errors; and a new `"resource"` event type
 capturing failed `<img>`/`<script>`/`<link>` loads (with a best-effort status code
 via the Resource Timing API), which the original `fetch`-only network capture never

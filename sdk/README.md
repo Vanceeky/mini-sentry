@@ -1,16 +1,16 @@
-# @mini-sentry/sdk
+# @mini-sentry/canary
 
 Framework-agnostic client-side error monitoring SDK. Zero runtime dependencies.
 
-Not published to a registry — consumed locally via the npm workspace in this repo
-(see the root `README.md`).
+Not published yet — see `PUBLISHING.md` for the exact steps once you're ready. Until
+then, consumed locally via the npm workspace in this repo (see the root `README.md`).
 
 ## Usage
 
 ### npm / bundler
 
 ```ts
-import { init, getCapturedEvents } from "@mini-sentry/sdk";
+import { init, getCapturedEvents } from "@mini-sentry/canary";
 
 init({
   apiKey: "your_project_key",
@@ -20,24 +20,22 @@ init({
 
 ### Script tag (no build step)
 
-`npm run build -w sdk` also emits an IIFE bundle at `dist/mini-sentry.min.js`
-(via esbuild, `build:cdn` script) that exposes a `MiniSentry` global — for a plain
+`npm run build -w sdk` also emits an IIFE bundle at `dist/canary.min.js`
+(via esbuild, `build:cdn` script) that exposes a `Canary` global — for a plain
 HTML page with no bundler:
 
 ```html
-<script src="/path/to/mini-sentry.min.js"></script>
+<script src="/path/to/canary.min.js"></script>
 <script>
-  MiniSentry.init({
+  Canary.init({
     apiKey: "your_project_key",
     endpoint: "https://your-collector.example.com/events",
   });
 </script>
 ```
 
-This isn't hosted anywhere yet — the package isn't published to npm (still
-`"private": true`), so there's no jsDelivr/unpkg URL to point at. Publishing it is a
-separate, explicit step (bumping the version, flipping `private` to `false`, running
-`npm publish`) — not done as part of adding this build output.
+This isn't hosted on a CDN yet — the package isn't published to npm yet (see
+`PUBLISHING.md`), so there's no jsDelivr/unpkg URL to point at until then.
 
 `init()` never throws, even with an invalid config — a malformed call is logged as a
 `console.warn` and leaves the SDK in a no-op state rather than affecting your app.

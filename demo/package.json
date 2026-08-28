@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@mini-sentry/sdk": "*"
+    "@mini-sentry/canary": "*"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

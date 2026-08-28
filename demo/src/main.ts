@@ -1,4 +1,4 @@
-import { getCapturedEvents, init } from "@mini-sentry/sdk";
+import { getCapturedEvents, init } from "@mini-sentry/canary";
 
 const statusEl = document.querySelector<HTMLParagraphElement>("#sdk-status");
 const logEl = document.querySelector<HTMLPreElement>("#capture-log");

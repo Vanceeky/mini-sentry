@@ -1,7 +1,6 @@
 {
-  "name": "@mini-sentry/sdk",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@mini-sentry/canary",
+  "version": "0.1.0",
   "description": "Framework-agnostic client-side error monitoring SDK",
   "type": "module",
   "main": "dist/index.js",
@@ -9,9 +8,14 @@
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Vanceeky/mini-sentry.git",
+    "directory": "sdk"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run build:cdn",
-    "build:cdn": "esbuild src/index.ts --bundle --minify --sourcemap --format=iife --global-name=MiniSentry --outfile=dist/mini-sentry.min.js",
+    "build:cdn": "esbuild src/index.ts --bundle --minify --sourcemap --format=iife --global-name=Canary --outfile=dist/canary.min.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },

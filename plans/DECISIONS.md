@@ -712,10 +712,33 @@ re-litigate them without cause.
   query `stack` already uses, not stored as a group-summary field.
 - **SDK CDN build uses esbuild, not the existing `tsc`-only build.** `tsc`
   emits ESM only, no bundling — can't produce a single `<script>`-loadable
-  file exposing a global. esbuild's `--format=iife --global-name=MiniSentry`
+  file exposing a global. esbuild's `--format=iife --global-name=Canary`
   does exactly that in one extra `build:cdn` script step, without changing
   the existing ESM/`tsc` output npm consumers get. (Phase 0's own decisions
   log flagged this exact revisit-later question — see Phase 0 above.)
+- **SDK package renamed `@mini-sentry/sdk` → `@mini-sentry/canary`, global
+  `MiniSentry` → `Canary`**, ahead of actually publishing to npm. `sdk` as a
+  package name is a description, not an identity, and `@mini-sentry/sdk`
+  read as generic/forgettable for something meant to be publicly
+  installable; `mini-sentry` stays the umbrella project/org name (backend,
+  dashboard branding, npm scope), `canary` is specifically this SDK product
+  — the metaphor (an early-warning signal) fits an error monitor better
+  than a literal descriptor does. Considered `canary-sentry` first and
+  rejected it — it reintroduced the exact "sentry" trademark-adjacency the
+  rename was meant to get away from, while also being longer. Checked npm
+  availability before committing: bare `canary` was already taken
+  (unrelated package); `canaryjs`/`canarykit` were free but the user had
+  already created the `mini-sentry` npm org, so the scoped
+  `@mini-sentry/canary` was the natural fit — no need to fall back to an
+  unscoped alternative. This is a real breaking rename of the public API
+  surface (import specifier, exported `CanaryConfig` type, the CDN global,
+  the built filename `canary.min.js`) — done now, before any real npm
+  publish, specifically so no one has to migrate off the old name later.
+  Every reference across `sdk/`, `demo/`, `web/`, and `docs/` was swept and
+  updated; the historical Phase 0–13 entries above and in `PROGRESS.md`
+  were deliberately left saying `@mini-sentry/sdk`, since that was the
+  accurate name at the time those phases actually happened — not rewritten
+  to pretend the name was always `canary`.
 
 ## Deferred (future phases, not implemented now)
 

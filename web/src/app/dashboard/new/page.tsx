@@ -45,7 +45,7 @@ export default function NewProjectPage() {
   }
 
   if (created) {
-    const snippet = `import { init } from "@mini-sentry/sdk";
+    const snippet = `import { init } from "@mini-sentry/canary";
 
 init({
   apiKey: "${created.apiKey}",
@@ -83,7 +83,7 @@ init({
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]">
-            npm install @mini-sentry/sdk
+            npm install @mini-sentry/canary
           </code>{" "}
           then:
         </p>

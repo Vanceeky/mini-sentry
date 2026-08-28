@@ -1,18 +1,18 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CodeBlock } from "./code-block";
 
-const NPM_INSTALL = `npm install @mini-sentry/sdk`;
+const NPM_INSTALL = `npm install @mini-sentry/canary`;
 
-const NPM_INIT = `import { init } from "@mini-sentry/sdk";
+const NPM_INIT = `import { init } from "@mini-sentry/canary";
 
 init({
   apiKey: "your_project_key",
   endpoint: "https://your-backend.example.com/api/v1/events",
 });`;
 
-const SCRIPT_TAG = `<script src="/mini-sentry.min.js"></script>
+const SCRIPT_TAG = `<script src="/canary.min.js"></script>
 <script>
-  MiniSentry.init({
+  Canary.init({
     apiKey: "your_project_key",
     endpoint: "https://your-backend.example.com/api/v1/events",
   });
@@ -61,7 +61,7 @@ export function SdkDocs() {
             <p className="text-sm text-muted-foreground">
               Not on a public CDN yet — run <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]">npm run build -w sdk</code>{" "}
               in the SDK repo, copy the generated{" "}
-              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]">dist/mini-sentry.min.js</code>{" "}
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]">dist/canary.min.js</code>{" "}
               into your own static assets, and reference it from there.
             </p>
           </TabsContent>

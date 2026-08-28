@@ -94,7 +94,7 @@
   <h1>Mini Sentry — SDK demo</h1>
   <p class="lede">
     A plain HTML page with no build step, using the script-tag bundle
-    (<code>/mini-sentry.min.js</code>). Paste a project's API key below, then
+    (<code>/canary.min.js</code>). Paste a project's API key below, then
     trigger a sample error — check your dashboard's error list after.
   </p>
 
@@ -125,7 +125,7 @@
   </section>
 </main>
 
-<script src="/mini-sentry.min.js"></script>
+<script src="/canary.min.js"></script>
 <script>
   var statusEl = document.getElementById("status");
   var log = document.getElementById("log");
@@ -138,7 +138,7 @@
   ];
 
   function refreshLog() {
-    var events = MiniSentry.getCapturedEvents();
+    var events = Canary.getCapturedEvents();
     log.textContent = events.length
       ? JSON.stringify(events, null, 2)
       : "nothing captured yet";
@@ -151,7 +151,7 @@
       alert("Paste a project API key first — create one at /dashboard/new.");
       return;
     }
-    MiniSentry.init({ apiKey: apiKey, endpoint: endpoint });
+    Canary.init({ apiKey: apiKey, endpoint: endpoint });
     statusEl.classList.add("ready");
     document.getElementById("statusLabel").textContent = "initialized";
     triggerButtons.forEach(function (b) { b.disabled = false; });

@@ -94,12 +94,12 @@ still using the old key starts failing the instant this call returns).
 
 ## 5. How to install/configure the SDK
 
-This is the `@mini-sentry/sdk` package (in `sdk/` of this monorepo) — not
+This is the `@mini-sentry/canary` package (in `sdk/` of this monorepo) — not
 part of this backend's own API surface, but what the API key from step 4 is
 for. In the customer's app:
 
 ```js
-import { init } from "@mini-sentry/sdk";
+import { init } from "@mini-sentry/canary";
 
 init({
   apiKey: "mnst_...",                          // from step 4

@@ -1,4 +1,4 @@
-export interface MiniSentryConfig {
+export interface CanaryConfig {
   apiKey: string;
   endpoint?: string;
   enabled?: boolean;
@@ -33,7 +33,7 @@ export function validateConfig(config: unknown): string[] {
   return errors;
 }
 
-export function resolveConfig(config: MiniSentryConfig): ResolvedConfig {
+export function resolveConfig(config: CanaryConfig): ResolvedConfig {
   return {
     apiKey: config.apiKey,
     endpoint: config.endpoint,

@@ -4,17 +4,17 @@ import { installResourceErrorListener } from "./capture/resources";
 import { getRecordedEvents, recordEvent } from "./capture/store";
 import type { CapturedEvent } from "./capture/types";
 import { resolveConfig, validateConfig } from "./core/config";
-import type { MiniSentryConfig } from "./core/config";
+import type { CanaryConfig } from "./core/config";
 import { generateId } from "./core/id";
 import { info, safeExec, warn } from "./core/safe";
 import { getState, setInitialized } from "./core/state";
 import { sendEvent } from "./transport/send";
 import { showCaptureNotification } from "./ui/notification";
 
-export type { MiniSentryConfig } from "./core/config";
+export type { CanaryConfig } from "./core/config";
 export type { CapturedEvent, CapturedEventType } from "./capture/types";
 
-export function init(config: MiniSentryConfig): void {
+export function init(config: CanaryConfig): void {
   safeExec(() => {
     if (getState().initialized) {
       warn("init() called more than once; ignoring subsequent call.");
