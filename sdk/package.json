@@ -1,6 +1,6 @@
 {
   "name": "@vanceeq/canary",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Framework-agnostic client-side error monitoring SDK",
   "license": "MIT",
   "type": "module",
