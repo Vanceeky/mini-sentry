@@ -1336,10 +1336,10 @@ work is new scope, not something to start proactively" guardrail).
 - `b30a4ad` — "web: add Next.js dashboard (landing page, auth, projects,
   error browsing)"
 
-## SDK renamed and prepared for npm publish
+## SDK renamed and published to npm (`@vanceeq/canary@0.1.0`, then `0.1.1`)
 
-Not yet published — `npm publish` requires the user's own npm login (2FA),
-which can't be run on their behalf. Everything up to that point is done:
+`npm publish` itself was run by the user (requires their own npm login/2FA,
+can't be run on their behalf) — everything up to and around that point:
 
 - Renamed `@mini-sentry/sdk` → `@vanceeq/canary`, CDN global `MiniSentry` →
   `Canary`, built filename `mini-sentry.min.js` → `canary.min.js`, exported
@@ -1368,8 +1368,47 @@ which can't be run on their behalf. Everything up to that point is done:
   `dist/` + `package.json` + `README.md`). Live-served and curl-verified:
   `canary.min.js` resolves, the old `mini-sentry.min.js` path correctly
   404s, demo page and landing page both reflect the current name.
-- `sdk/PUBLISHING.md` has the exact remaining steps (npm login, `npm
-  publish -w sdk --access public`) for whenever the user is ready to run them.
+- `sdk/PUBLISHING.md` has the exact steps (npm login, `npm publish -w sdk
+  --access public`) — the user ran these themselves; `@vanceeq/canary`
+  went live on npm.
+- **Real bug found by actually testing the published package, not just
+  build/typecheck/test passing**: `npm view`/`npm install` briefly 404'd
+  right after publish (registry propagation lag, resolved on its own within
+  minutes — confirmed by retrying `npm view`). Once it resolved, installing
+  the real published tarball into a fresh scratch project and running a
+  real `import`/`require()` against it — genuinely new-consumer conditions
+  `npm run build`/`test`/`typecheck` never exercise, since everything
+  *inside* this monorepo goes through a bundler (Vite for `demo/`,
+  Next.js for `web/`, esbuild for the CDN build) — crashed:
+  `ERR_MODULE_NOT_FOUND`, because `dist/index.js` (plain `tsc` output) had
+  extensionless relative imports (`from "./capture/listeners"`), which
+  Node's native ESM resolver requires to be explicit
+  (`"./capture/listeners.js"`), unlike a bundler's lenient resolution.
+  Traced to `tsconfig.base.json`'s `"moduleResolution": "Bundler"` — correct
+  for every in-repo consumer, wrong for the raw multi-file output actually
+  published to npm.
+  **Fix**: `tsc` now only emits type declarations
+  (`"emitDeclarationOnly": true` in `sdk/tsconfig.json`) — no more
+  execution-path resolution problem, since `.d.ts` files aren't executed.
+  A new `build:esm` esbuild step bundles `dist/index.js` (ESM, unminified,
+  sourcemapped) the same way `build:cdn` already bundles the CDN file — one
+  self-contained file, no unresolved relative imports left for any consumer
+  to choke on. Re-verified via the exact repro that caught it: packed the
+  real tarball, installed it into a clean scratch project, ran both a real
+  ESM `import` and Node's native `require()` against it — both resolve
+  `init`/`getCapturedEvents` correctly and `init()` runs cleanly (with the
+  expected "no window/fetch/document" graceful no-op warnings, correct
+  behavior in plain Node).
+- **Also found and fixed while investigating**: `sdk/package.json` had no
+  `"license"` field, so npm displayed the package as **"Proprietary"** —
+  legally unusable despite being publicly downloadable. Added
+  `"license": "MIT"` plus `sdk/LICENSE`, flagged to the user as a real
+  decision (not silently assumed) since it's a legal choice, not a style
+  one.
+- Version bumped `0.1.0` → `0.1.1` for the fix — `0.1.0` stays published
+  and broken forever (npm versions are immutable, confirmed via
+  `PUBLISHING.md`'s own warning about this), `0.1.1` is the one to
+  actually depend on.
 
 **Commits:**
 - `7b4066c` — "sdk: rename @mini-sentry/sdk to @mini-sentry/canary, prep for

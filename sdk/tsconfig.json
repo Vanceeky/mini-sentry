@@ -3,6 +3,7 @@
   "compilerOptions": {
     "lib": ["ES2020", "DOM"],
     "declaration": true,
+    "emitDeclarationOnly": true,
     "outDir": "dist",
     "rootDir": "src"
   },

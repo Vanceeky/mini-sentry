@@ -747,6 +747,37 @@ re-litigate them without cause.
   were deliberately left saying `@mini-sentry/sdk`, since that was the
   accurate name at the time those phases actually happened — not rewritten
   to pretend the name was always `canary`.
+- **`sdk/tsconfig.json` now emits declarations only
+  (`"emitDeclarationOnly": true`); a new `build:esm` esbuild step produces
+  the actual `dist/index.js`, bundled (ESM, unminified, sourcemapped) —
+  mirroring how `build:cdn` already bundles the CDN file.** Root cause: the
+  real published `@vanceeq/canary@0.1.0` crashed for any consumer using
+  Node's native module resolution (`ERR_MODULE_NOT_FOUND` on
+  `dist/capture/listeners`) — plain `tsc` output under
+  `tsconfig.base.json`'s `"moduleResolution": "Bundler"` emits extensionless
+  relative imports, which is correct for every consumer *inside* this
+  monorepo (Vite, Next.js, esbuild all resolve those leniently) but wrong
+  for a raw multi-file package published to npm, where Node's own strict
+  ESM resolver requires explicit `.js` extensions. Considered adding
+  explicit extensions to every relative import across `sdk/src/` instead
+  (the more "textbook" NodeNext-style fix) and rejected it as a much larger,
+  riskier diff for the same outcome — bundling the entry point removes the
+  cross-file resolution problem entirely, and the SDK is tiny enough
+  (13.2KB unminified) that losing per-file tree-shaking granularity for npm
+  consumers costs nothing real. Type declarations (`.d.ts`) are unaffected
+  by this bug (never executed) and stay multi-file, straight from `tsc`.
+  Only found because the published tarball was actually installed into a
+  clean scratch project and imported for real — `npm run
+  build`/`test`/`typecheck` never exercises true Node module resolution,
+  since every in-repo consumer goes through a bundler. Worth remembering:
+  passing typecheck/tests/build is not the same as "actually installable."
+- **`sdk/package.json` had no `"license"` field** — npm displayed the
+  published package as "Proprietary" (npm's default when unset), legally
+  unusable despite being public. Set to `"license": "MIT"` plus a
+  `sdk/LICENSE` file, flagged to the user explicitly as a real decision
+  (legal, not stylistic) rather than silently assumed — MIT chosen as the
+  standard default for a publishable open-source npm package, not because
+  any other license was ruled out for a specific reason.
 
 ## Deferred (future phases, not implemented now)
 

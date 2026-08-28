@@ -1,7 +1,8 @@
 {
   "name": "@vanceeq/canary",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Framework-agnostic client-side error monitoring SDK",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,7 +15,8 @@
     "directory": "sdk"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && npm run build:cdn",
+    "build": "tsc -p tsconfig.json && npm run build:esm && npm run build:cdn",
+    "build:esm": "esbuild src/index.ts --bundle --format=esm --sourcemap --platform=neutral --outfile=dist/index.js",
     "build:cdn": "esbuild src/index.ts --bundle --minify --sourcemap --format=iife --global-name=Canary --outfile=dist/canary.min.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
