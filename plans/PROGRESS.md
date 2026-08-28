@@ -1415,6 +1415,8 @@ can't be run on their behalf) — everything up to and around that point:
   npm publish"
 - `84f2203` — "sdk: correct npm scope to @vanceeq/canary (mini-sentry is a
   team, not an org)"
+- `7a75cf8` — "sdk: fix broken npm package (Node ESM resolution) and
+  missing license, bump 0.1.1"
 
 **Next:** none queued. Future work (a real push provider, per-project CORS,
 password reset, response-body capture with real redaction, `web/` test
