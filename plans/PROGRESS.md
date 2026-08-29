@@ -1335,6 +1335,9 @@ provider chosen), superadmin role snapshotted into the session token until
 next login, no API to grant/revoke SUPERADMIN, and team access grants error
 data access/assignment only, never project-identity co-ownership.
 
+**Commit:** `2a2d702` — "backend: Phase 14 -- teams, roles, invitations &
+error assignment"
+
 **Next phase:** none queued. Further work (a real email provider for
 invitations, per-project CORS, password reset, etc.) is tracked in
 `plans/DECISIONS.md`'s Deferred section, to be picked up only when
