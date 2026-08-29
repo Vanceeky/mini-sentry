@@ -1410,6 +1410,38 @@ can't be run on their behalf) — everything up to and around that point:
   `PUBLISHING.md`'s own warning about this), `0.1.1` is the one to
   actually depend on.
 
+- **Docs still said "not published yet" / self-host-only after `0.1.1` went
+  live** — fixed: `sdk/README.md`'s script-tag section now leads with the
+  live jsDelivr/unpkg CDN URLs (confirmed via live `curl` checks — no
+  self-hosting required, though it's kept as the documented alternative),
+  `DEPLOYMENT.md`/`PUBLISHING.md` updated from "how to publish" to "already
+  published," root `README.md`'s summary line updated, and the landing
+  page's SDK docs section (`web/src/components/landing/sdk-docs.tsx`) got
+  the same CDN URL plus a `CAPTURES` list fix that had independently gone
+  stale (missing resource-load capture and the filename/line/column detail).
+- **`0.1.1`'s published README was already stale by the time the fix above
+  landed** — npm bundles `README.md` into every published tarball
+  regardless of the `"files"` field, and versions are immutable, so the doc
+  fix couldn't retroactively apply to the already-published `0.1.1`.
+  Directly verified by unpacking both tarballs and diffing their
+  `README.md` (`0.1.1`: still said "not published yet"; confirmed accurate
+  after bump). Bumped to `0.1.2` — no source/behavior change, purely to get
+  the current README into what npm/jsDelivr actually serve — and published.
+- **Second 404-on-publish, different cause than the first**: publishing
+  `0.1.2` 404'd again, but this time `@vanceeq/canary` already existed
+  (`0.1.0`/`0.1.1` both live) — a different failure mode than the original
+  scope/org mismatch. `npm whoami` on the publishing machine returned `401
+  Unauthorized` — the npm CLI session's auth had simply expired (time had
+  passed, dev servers had been restarted/session-cleaned in between). npm
+  returns 404, not a clear auth error, for a PUT to a scoped package when
+  unauthenticated — same "don't leak" behavior as the very first 404, worth
+  remembering as the general lesson: **a 404 on `npm publish` to a scoped
+  package doesn't necessarily mean a naming/scope problem — check `npm
+  whoami` first before assuming it's the package.json that's wrong.** Fixed
+  by re-running `npm login`; no repo-side change needed. `@vanceeq/canary`
+  now has `0.1.0`, `0.1.1` (broken, kept forever per npm's immutability),
+  and `0.1.2` (current `latest`) published.
+
 **Commits:**
 - `7b4066c` — "sdk: rename @mini-sentry/sdk to @mini-sentry/canary, prep for
   npm publish"
@@ -1417,8 +1449,20 @@ can't be run on their behalf) — everything up to and around that point:
   team, not an org)"
 - `7a75cf8` — "sdk: fix broken npm package (Node ESM resolution) and
   missing license, bump 0.1.1"
+- `5b8c1e0` — "docs: point at the live jsDelivr/unpkg CDN now that
+  @vanceeq/canary is published"
+- `c8b6fe5` — "sdk: bump to 0.1.2 -- 0.1.1's published README was already
+  stale"
+
+**Current state, for anyone (or any future session) picking this up cold**:
+`@vanceeq/canary@0.1.2` is the live, correct, working npm package —
+`npm install @vanceeq/canary` or the jsDelivr/unpkg script tag both work
+today, confirmed via live checks, not just "should work." `0.1.0` and
+`0.1.1` remain published (immutable) but are stale/broken — never point
+anyone at them specifically.
 
 **Next:** none queued. Future work (a real push provider, per-project CORS,
 password reset, response-body capture with real redaction, `web/` test
-coverage, actually running `npm publish`, etc.) stays new scope to confirm
-before starting, same as always.
+coverage, actually deploying `backend/` somewhere real so the SDK's
+`endpoint` has somewhere non-`localhost` to point at, etc.) stays new scope
+to confirm before starting, same as always.

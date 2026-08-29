@@ -778,6 +778,22 @@ re-litigate them without cause.
   (legal, not stylistic) rather than silently assumed — MIT chosen as the
   standard default for a publishable open-source npm package, not because
   any other license was ruled out for a specific reason.
+- **`README.md` is part of every published npm tarball, regardless of the
+  `"files"` allowlist — and, like everything else in a version, immutable.**
+  A doc-only fix landed *after* `0.1.1` was already published, so `0.1.1`'s
+  actual published README stayed stale (verified by unpacking and diffing
+  both tarballs directly, not assumed). The only fix is a new version —
+  bumped to `0.1.2` for this alone, no source change. General lesson: a
+  README/docs fix isn't "free" once something's published; it still costs a
+  version bump if the already-published copy needs to be correct too.
+- **A `404` on `npm publish` doesn't always mean the same thing.** The first
+  one (`@mini-sentry/canary`) was a real scope/org mismatch. A later one,
+  publishing `0.1.2` to the by-then-already-existing `@vanceeq/canary`, was
+  something else entirely: the local npm CLI session's auth had expired
+  (`npm whoami` returned `401`) — npm still surfaces that as a `404` on the
+  publish attempt itself, not a clear auth error, same "don't leak
+  resource existence" behavior npm uses elsewhere. Don't assume a publish
+  `404` means the package.json/scope is wrong — check `npm whoami` first.
 
 ## Deferred (future phases, not implemented now)
 
