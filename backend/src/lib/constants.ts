@@ -55,3 +55,15 @@ export const LOGIN_RATE_LIMIT_MAX = 10;
 export const LOGIN_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 export const EVENT_RATE_LIMIT_MAX = 100;
 export const EVENT_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+
+/** Team/invitation/assignment endpoints (Phase 14) — bodies are tiny, same cap as auth/project. */
+export const MAX_TEAM_PAYLOAD_BYTES = 4 * 1024; // 4 KiB
+export const MAX_INVITATION_PAYLOAD_BYTES = 4 * 1024; // 4 KiB
+export const MAX_ASSIGNMENT_PAYLOAD_BYTES = 4 * 1024; // 4 KiB
+
+/**
+ * How long a team invitation stays acceptable before lazily expiring on next
+ * access (no cron). Arbitrary but documented — same "not derived from the
+ * brief, defined here" precedent as ACTIVE_GROUP_WINDOW_MS.
+ */
+export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days

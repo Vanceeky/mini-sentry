@@ -2,10 +2,16 @@ import type { CapturedEventInput } from "./eventSchema";
 import type { NotificationPayload, NotificationType } from "./notification";
 import type { PersistedEvent } from "./persistEvent";
 
+// ASSIGNED_ERROR is included only for type-completeness against
+// NotificationType — determineNotificationType() below never produces it
+// (assignment is a manual action, not an ingestion-time decision); its real
+// title is built inline where it's actually used, in the PATCH assignment
+// route. See DECISIONS.md.
 const TITLES: Record<NotificationType, string> = {
   NEW_ERROR: "New Error Detected",
   SERIOUS_ERROR: "Serious Error",
   REACTIVATED_ERROR: "Error Reactivated",
+  ASSIGNED_ERROR: "Error Assigned to You",
 };
 
 function formatErrorSummary(event: CapturedEventInput): string {

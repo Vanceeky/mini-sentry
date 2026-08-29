@@ -7,6 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  USER
+  SUPERADMIN
+}
+
+enum TeamRole {
+  LEAD
+  MEMBER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
 // Phase 7 fields kept additive-only, per that phase's note — the seed data /
 // dev API key / existing tests all depend on this exact shape.
 //
@@ -17,6 +34,15 @@ datasource db {
 // project created through POST /api/v1/projects (Phase 10) always sets it —
 // see lib/project.ts. apiKeyLastFour is nullable for the same reason (it
 // didn't exist before Phase 10); it's set on every create/rotate from here on.
+//
+// teamId (Phase 14) is purely additive on top of ownerId, never a replacement
+// for it: ownerId is still the single accountable creator who can rename/
+// delete the project, rotate its key, or attach/detach a team; teamId, when
+// set, additionally grants every member of that team read access to the
+// project's error data and the ability to assign error groups — see
+// lib/access.ts's resolveProjectAccess() and DECISIONS.md. onDelete: SetNull
+// (unlike ownerId's Cascade) is deliberate: deleting a team must never
+// destroy a project's error data, only detach it.
 model Project {
   id             String   @id @default(cuid())
   name           String
@@ -24,6 +50,8 @@ model Project {
   apiKeyLastFour String?
   ownerId        String?
   owner          User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  teamId         String?
+  team           Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -31,7 +59,87 @@ model Project {
   errorEvents ErrorEvent[]
 
   @@index([ownerId])
+  @@index([teamId])
   @@map("projects")
+}
+
+// An org-style grouping of users that can jointly access one or more
+// projects (Phase 14). createdById is nullable + SetNull (not Cascade): a
+// team must survive its creator's account being deleted, since other
+// members may still depend on it — createdById is audit/display metadata
+// ("created by X"), not the source of the creator's ongoing membership
+// (that's their TeamMember row, created alongside the team in the same
+// transaction — see lib/team.ts's createTeam()).
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  createdById String?
+  createdBy   User?    @relation("TeamCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     TeamMember[]
+  projects    Project[]
+  invitations Invitation[]
+
+  @@index([createdById])
+  @@map("teams")
+}
+
+// Join table for team membership + role. onDelete: Cascade both directions —
+// a membership row has no independent meaning once either side is gone.
+// @@unique([teamId, userId]) means role changes update this row rather than
+// creating duplicates, and gives lib/access.ts a single compound-unique
+// lookup (`teamId_userId`) for "is this user on this team, and as what role."
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      TeamRole @default(MEMBER)
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+// A pending (or resolved) invite to join a team, identified by email since
+// the invited person may not have an account yet. tokenHash follows the same
+// unsalted-sha256-of-a-high-entropy-random-value pattern as
+// Project.apiKeyHash/Session.tokenHash — the raw token is returned to the
+// inviter exactly once (see lib/invitation.ts) and also used to actually
+// send an invite email (lib/email.ts), with the token itself as the manual
+// fallback if delivery fails.
+//
+// invitedById is nullable + SetNull for the same reason as
+// Team.createdById — deleting the inviter shouldn't invalidate an
+// otherwise-still-valid invitation.
+//
+// No DB-level unique constraint on [teamId, invitedEmail]: Postgres can only
+// express "unique while status=PENDING" via a partial index, which Prisma's
+// schema DSL doesn't support declaratively. "No duplicate pending invite" is
+// instead enforced in lib/invitation.ts by checking for an existing PENDING
+// row before creating — see DECISIONS.md.
+model Invitation {
+  id           String            @id @default(cuid())
+  teamId       String
+  team         Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedEmail String
+  invitedRole  TeamRole          @default(MEMBER)
+  tokenHash    String            @unique
+  status       InvitationStatus  @default(PENDING)
+  invitedById  String?
+  invitedBy    User?             @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  expiresAt    DateTime
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([teamId])
+  @@index([invitedEmail])
+  @@map("invitations")
 }
 
 // One row per distinct fingerprint within a project — see
@@ -46,6 +154,14 @@ model Project {
 // nullable Phase 10 fields) — every group persistEvent.ts creates from here
 // on always sets it (currently always "browser", per the SDK's fixed
 // literal — see DECISIONS.md, Phase 2).
+//
+// assigneeId (Phase 14) is nullable and onDelete: SetNull — assigning is a
+// mutable, informational pointer to a User, never a required field, and
+// deleting the assigned user (or removing them from the team, handled at the
+// app layer, not the DB) must unassign rather than delete the group. No DB
+// constraint ties assigneeId to project.team's membership — that's enforced
+// at assignment time in lib/assignment.ts, since Prisma FKs can't express a
+// cross-table conditional constraint.
 model ErrorGroup {
   id              String   @id @default(cuid())
   projectId       String
@@ -59,6 +175,8 @@ model ErrorGroup {
   firstSeenAt     DateTime @default(now())
   lastSeenAt      DateTime @default(now())
   occurrenceCount Int      @default(0)
+  assigneeId      String?
+  assignee        User?    @relation("ErrorGroupAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -67,6 +185,7 @@ model ErrorGroup {
   @@unique([projectId, fingerprint])
   @@index([projectId])
   @@index([fingerprint])
+  @@index([assigneeId])
   @@map("error_groups")
 }
 
@@ -107,17 +226,27 @@ model ErrorEvent {
 // distinct from Project, which represents an app being monitored, not a
 // person. passwordHash is salted scrypt (see lib/password.ts), never the
 // project-API-key-style unsalted hash used elsewhere in this schema.
+//
+// role (Phase 14) defaults to USER; SUPERADMIN is granted only via the
+// SUPERADMIN_EMAILS env-var allowlist, re-checked on every login/register —
+// see lib/adminGuard.ts and DECISIONS.md. Promotion-only: removing an email
+// from the allowlist never auto-demotes an already-promoted account.
 model User {
   id           String   @id @default(cuid())
   name         String
   email        String   @unique
   passwordHash String
+  role         Role     @default(USER)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions Session[]
-  projects Project[]
-  devices  Device[]
+  sessions        Session[]
+  projects        Project[]
+  devices         Device[]
+  teamMemberships TeamMember[]
+  ledTeams        Team[]       @relation("TeamCreatedBy")
+  assignedGroups  ErrorGroup[] @relation("ErrorGroupAssignee")
+  sentInvitations Invitation[] @relation("InvitationInvitedBy")
 
   @@map("users")
 }

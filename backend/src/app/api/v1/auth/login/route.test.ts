@@ -40,7 +40,7 @@ describe("POST /api/v1/auth/login", () => {
   });
 
   it("returns 200 with a token and safe user object for correct credentials", async () => {
-    const user = { id: "usr_1", name: "Ada", email: "ada@example.com", passwordHash: hashPassword("correct-password") };
+    const user = { id: "usr_1", name: "Ada", email: "ada@example.com", role: "USER", passwordHash: hashPassword("correct-password") };
     const sessionCreate = vi.fn().mockResolvedValue({});
     const { POST } = await freshRoute({ findUnique: vi.fn().mockResolvedValue(user), sessionCreate });
 
@@ -51,7 +51,7 @@ describe("POST /api/v1/auth/login", () => {
     expect(body.success).toBe(true);
     expect(typeof body.token).toBe("string");
     expect(body.token.length).toBeGreaterThan(0);
-    expect(body.user).toEqual({ id: "usr_1", name: "Ada", email: "ada@example.com" });
+    expect(body.user).toEqual({ id: "usr_1", name: "Ada", email: "ada@example.com", role: "USER" });
     expect(JSON.stringify(body)).not.toContain(user.passwordHash);
 
     expect(sessionCreate).toHaveBeenCalledTimes(1);

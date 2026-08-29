@@ -1242,6 +1242,104 @@ CORS, password reset, etc.) is tracked in `plans/DECISIONS.md`'s Deferred
 section and `docs/API.md`'s Known Limitations, to be picked up only when
 explicitly instructed.
 
+## Phase 14 — Backend: Teams, Roles & Assignment
+
+**Status:** Complete
+
+New scope, not pre-planned — the user asked to run this as a real multi-user
+product: superadmin oversight across every client's team, org-style teams
+that jointly own projects, token-based invitations (no email delivery
+mechanism exists in this backend), and error-group assignment (lead assigns
+anyone, member self-assigns). Confirmed with the user via explicit
+clarifying questions before implementation; see `plans/DECISIONS.md`'s
+Phase 14 section for the reasoning behind each decision.
+
+**What was built:**
+- **Schema** (`backend/prisma/schema.prisma`): `Role`/`TeamRole`/
+  `InvitationStatus` enums; new `Team`, `TeamMember` (join table with role),
+  `Invitation` models; additive `User.role`, `Project.teamId` (nullable,
+  `onDelete: SetNull` — deliberately asymmetric with `ownerId`'s `Cascade`),
+  `ErrorGroup.assigneeId` (nullable, `onDelete: SetNull`). Migration
+  `20260829050505_add_teams_roles_invitations_assignment` — no backfill
+  needed, every new column is nullable or defaulted.
+- **`lib/access.ts`** (new): `resolveProjectAccess()` (owner OR team member,
+  IDOR-safe) and `findTeamMembership()` — the new access gate for
+  read/error-data project routes only; project-identity routes stay on the
+  original owner-only `findOwnedProject`.
+- **`lib/adminGuard.ts`** (new): `syncSuperAdminRole()` (promotion-only,
+  checked from `SUPERADMIN_EMAILS` on every login/register) and
+  `requireSuperAdmin()`.
+- **`lib/team.ts`** (new): team CRUD, membership list/remove/role-change (with
+  a last-remaining-LEAD guard), project attach/detach — all following
+  `lib/project.ts`'s IDOR-safe "bake the scoping condition into the query"
+  pattern.
+- **`lib/invitation.ts`** (new): token generation (same
+  `randomBytes`+unsalted-`sha256Hex` pattern as API keys), create/list/
+  revoke/accept, with lazy expiry and IDOR-safe not-found/expired/
+  email-mismatch handling.
+- **`lib/email.ts`** (new): `EmailService` interface +
+  `ConsoleEmailService` placeholder (logs instead of sending — no provider
+  chosen yet), mirroring `NotificationService`'s exact pattern.
+- **`lib/assignment.ts`** (new): `assignErrorGroup()` enforcing
+  LEAD-assigns-anyone / MEMBER-self-assigns-only.
+- **`lib/admin.ts`** (new): `listAllUsers()` and `listAllTeams()` (with
+  member/project counts — the superadmin's "see my clients' teams" view).
+- **15 new/changed API routes**: `teams/`, `teams/:id`,
+  `teams/:id/members`, `teams/:id/members/:userId`,
+  `teams/:id/invitations`, `teams/:id/invitations/:id`,
+  `invitations/mine`, `invitations/accept`, `projects/:id/team` (attach/
+  detach), `admin/users`, `admin/teams`, plus a real `PATCH` on
+  `projects/:id/errors/:errorGroupId` (previously a dead 405 stub) for
+  assignment. `errors`/`events`/`stats` routes swapped `findOwnedProject` for
+  `resolveProjectAccess`.
+- **10 new `ApiError` codes**: `TEAM_NOT_FOUND`, `FORBIDDEN`,
+  `INSUFFICIENT_ROLE`, `NOT_A_TEAM_MEMBER`, `INVITATION_NOT_FOUND`,
+  `INVITATION_EXPIRED`, `INVITATION_EMAIL_MISMATCH`,
+  `INVITATION_ALREADY_PENDING`, `PROJECT_NOT_ON_TEAM`, `LAST_TEAM_LEAD`.
+- **`docs/API.md`**: new Teams/Invitations/Admin sections, `PATCH` assignment
+  endpoint documented under Errors, `role` added to auth response examples,
+  all 10 new error codes added to the Error Responses table, Known
+  Limitations extended for Phase 14.
+- **`backend/.env.example`**: `SUPERADMIN_EMAILS` documented.
+
+**Tests performed:**
+- `npm run typecheck -w backend` — clean.
+- `npm run test -w backend` (no `DATABASE_URL`): 371 passed, 23 skipped
+  across 60 files — 6 new lib-module test files (`access`, `team`,
+  `invitation`, `assignment`, `adminGuard`, `admin`), 11 new route test
+  files, plus the pre-existing `errors/[errorGroupId]/route.test.ts`
+  rewritten to cover the new `PATCH` permission matrix and `errors`/`events`/
+  `stats`/`login`/`register` route tests updated for the
+  `resolveProjectAccess` swap and the new `role` field.
+- **With `DATABASE_URL` set**: 395 passed, 0 skipped — including a new
+  `teams/flow.integration.test.ts` driving the full real-DB flow: two users
+  register, one creates a team and invites two others by email, both accept
+  via the returned token, a project is created and attached to the team, a
+  non-owner team member reads its errors (previously would 404), a real
+  event is ingested to produce an error group, a member self-assigns it, the
+  LEAD reassigns it to a third member, a member is blocked
+  (`INSUFFICIENT_ROLE`) from assigning it to someone else, the LEAD removes
+  a member, and that member loses access again — all against real Postgres,
+  not mocks.
+- `npm run build -w backend` — all 25 routes (10 pre-existing groups + the
+  new `admin/teams`, `admin/users`, `invitations/accept`, `invitations/mine`,
+  `projects/:id/team`, `teams`, `teams/:id`, `teams/:id/invitations`,
+  `teams/:id/invitations/:id`, `teams/:id/members`,
+  `teams/:id/members/:userId`) compiled successfully.
+- `find sdk/dist -iname '*.test.*'` / `find backend/.next -iname '*.test.*'` — both empty.
+
+**Known limitations:** see `docs/API.md`'s Known Limitations section (Phase
+14 additions) — no cascading unassign on member removal, app-level (not DB)
+invite-uniqueness, invitation/notification emails logged not delivered (no
+provider chosen), superadmin role snapshotted into the session token until
+next login, no API to grant/revoke SUPERADMIN, and team access grants error
+data access/assignment only, never project-identity co-ownership.
+
+**Next phase:** none queued. Further work (a real email provider for
+invitations, per-project CORS, password reset, etc.) is tracked in
+`plans/DECISIONS.md`'s Deferred section, to be picked up only when
+explicitly instructed.
+
 ## Post-Phase-13 — Web app + SDK/backend enhancements
 
 **Status:** Complete (not a numbered phase — new scope confirmed with the

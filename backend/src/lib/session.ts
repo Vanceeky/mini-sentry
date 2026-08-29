@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { Role } from "@prisma/client";
 import { SESSION_TTL_MS } from "./constants";
 import { prisma } from "./db";
 import { sha256Hex } from "./hash";
@@ -7,6 +8,11 @@ export interface AuthenticatedUser {
   id: string;
   name: string;
   email: string;
+  // Snapshotted at session-lookup time (Phase 14) — SUPERADMIN promotion is
+  // re-checked on every login (see auth/login/route.ts), but a role change
+  // to an already-issued session token only takes effect on the next login,
+  // not live mid-session. See DECISIONS.md for the trade-off.
+  role: Role;
 }
 
 export interface CreatedSession {
@@ -30,7 +36,7 @@ export async function createSession(userId: string): Promise<CreatedSession> {
 export async function findUserBySessionToken(rawToken: string): Promise<AuthenticatedUser | null> {
   const session = await prisma.session.findUnique({
     where: { tokenHash: sha256Hex(rawToken) },
-    select: { expiresAt: true, user: { select: { id: true, name: true, email: true } } },
+    select: { expiresAt: true, user: { select: { id: true, name: true, email: true, role: true } } },
   });
 
   if (!session || session.expiresAt.getTime() <= Date.now()) {

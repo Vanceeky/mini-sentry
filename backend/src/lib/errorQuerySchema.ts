@@ -1,9 +1,6 @@
 import { z } from "zod";
-import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from "./constants";
 import { ERRORS } from "./errors";
-
-const pageSchema = z.coerce.number().int().min(1).default(1);
-const limitSchema = z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).default(DEFAULT_PAGE_LIMIT);
+import { limitSchema, pageSchema } from "./paginationSchema";
 
 // Matches the SDK's actual CapturedEventType (see sdk/src/capture/types.ts).
 // The brief's own example used "network" as an illustrative value, but this

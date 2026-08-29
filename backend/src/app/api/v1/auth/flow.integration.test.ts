@@ -49,7 +49,7 @@ describe.skipIf(!process.env.DATABASE_URL)("auth flow (real DB)", () => {
     const meResponse = await me(jsonRequest("/api/v1/auth/me", "GET", undefined, token));
     expect(meResponse.status).toBe(200);
     const meBody = (await meResponse.json()) as { user: { id: string; email: string } };
-    expect(meBody.user).toEqual({ id: createdUserId, name: "Flow Test", email });
+    expect(meBody.user).toEqual({ id: createdUserId, name: "Flow Test", email, role: "USER" });
 
     const logoutResponse = await logout(jsonRequest("/api/v1/auth/logout", "POST", undefined, token));
     expect(logoutResponse.status).toBe(200);

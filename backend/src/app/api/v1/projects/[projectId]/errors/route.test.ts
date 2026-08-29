@@ -4,7 +4,7 @@ const user = { id: "user_1", name: "Ada", email: "ada@example.com" };
 
 async function freshRoute(opts: {
   authFails?: boolean;
-  findOwnedProject?: ReturnType<typeof vi.fn>;
+  resolveProjectAccess?: ReturnType<typeof vi.fn>;
   listErrorGroups?: ReturnType<typeof vi.fn>;
 } = {}) {
   vi.resetModules();
@@ -14,8 +14,8 @@ async function freshRoute(opts: {
       ? vi.fn().mockRejectedValue(ERRORS.UNAUTHORIZED())
       : vi.fn().mockResolvedValue(user),
   }));
-  vi.doMock("@/lib/project", () => ({
-    findOwnedProject: opts.findOwnedProject ?? vi.fn().mockResolvedValue({ id: "proj_1" }),
+  vi.doMock("@/lib/access", () => ({
+    resolveProjectAccess: opts.resolveProjectAccess ?? vi.fn().mockResolvedValue({ id: "proj_1", teamId: null }),
   }));
   vi.doMock("@/lib/errorQuery", () => ({
     listErrorGroups: opts.listErrorGroups ?? vi.fn().mockResolvedValue({ data: [], pagination: { page: 1, limit: 20, total: 0 } }),
@@ -36,7 +36,7 @@ describe("GET /api/v1/projects/:projectId/errors", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock("@/lib/authGuard");
-    vi.doUnmock("@/lib/project");
+    vi.doUnmock("@/lib/access");
     vi.doUnmock("@/lib/errorQuery");
   });
 
@@ -47,7 +47,7 @@ describe("GET /api/v1/projects/:projectId/errors", () => {
   });
 
   it("returns 404 PROJECT_NOT_FOUND when the project isn't owned", async () => {
-    const { GET } = await freshRoute({ findOwnedProject: vi.fn().mockResolvedValue(null) });
+    const { GET } = await freshRoute({ resolveProjectAccess: vi.fn().mockResolvedValue(null) });
     const response = await GET(makeRequest(), ctx());
     expect(response.status).toBe(404);
   });

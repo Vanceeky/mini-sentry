@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { syncSuperAdminRole } from "@/lib/adminGuard";
 import { loginSchema } from "@/lib/authSchema";
 import { resolveCorsHeaders } from "@/lib/cors";
 import { LOGIN_RATE_LIMIT_MAX, LOGIN_RATE_LIMIT_WINDOW_MS, MAX_AUTH_PAYLOAD_BYTES } from "@/lib/constants";
@@ -58,13 +59,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       return jsonError(ERRORS.INVALID_CREDENTIALS(), cors);
     }
 
+    const role = await syncSuperAdminRole(user.id, user.email, user.role);
     const session = await createSession(user.id);
 
     return NextResponse.json(
       {
         success: true,
         token: session.token,
-        user: { id: user.id, name: user.name, email: user.email },
+        user: { id: user.id, name: user.name, email: user.email, role },
       },
       { status: 200, headers: cors },
     );

@@ -795,6 +795,128 @@ re-litigate them without cause.
   resource existence" behavior npm uses elsewhere. Don't assume a publish
   `404` means the package.json/scope is wrong — check `npm whoami` first.
 
+## Phase 14 — Teams, Roles & Assignment
+
+New scope, not pre-planned: the user asked to run this as a real multi-user
+product — see them as superadmin across every client's team, let a team lead
+invite members and assign errors, let members self-assign. Confirmed with
+the user (four explicit decisions below) before implementation rather than
+assumed.
+
+- **Teams are additive, not a replacement for `Project.ownerId`.** A `Team`
+  can own many projects (org-style, like a GitHub org owning repos);
+  `Project.ownerId` (the creator) is completely unchanged, and the new
+  `Project.teamId` is nullable — a solo project with no team behaves
+  byte-for-byte identically to before Phase 14. This follows the schema's
+  existing "already-shipped fields are additive-only" convention rather than
+  restructuring ownership around teams.
+- **Team access is access-only, not co-ownership** — attaching a project to a
+  team grants every team member (including LEADs) read access to its error
+  data and the ability to assign error groups, but only the project's direct
+  `owner` can rename/delete it, rotate its API key, or attach/detach a team.
+  This is why `lib/access.ts`'s `resolveProjectAccess()` (owner OR team
+  member) only replaces `findOwnedProject` on the read/error-data routes
+  (`errors`, `events`, `stats`, assignment) — the project-identity routes
+  (`GET/PATCH/DELETE /projects/:id`, key rotation, team attach/detach) keep
+  using the original owner-only `findOwnedProject` unchanged. Confirmed with
+  the user as the narrower of two possible interpretations (the wider one —
+  LEADs getting full project control — was explicitly offered and declined).
+- **`Project.teamId` uses `onDelete: SetNull`, deliberately asymmetric with
+  `ownerId`'s existing `onDelete: Cascade`.** Deleting a team must never
+  destroy a project's error data as a side effect of a team-management
+  action — the project just reverts to owner-only access. Deleting the
+  project's owner, by contrast, has always cascaded (an owner is the single
+  accountable person for a solo project). Worth calling out explicitly since
+  a future reader could otherwise assume the asymmetry is a bug.
+- **Superadmin bootstrap via `SUPERADMIN_EMAILS` env var, promotion-only.**
+  No admin UI exists yet to grant the role, and building one wasn't asked
+  for — an env-var allowlist, checked (and applied) on every login/register,
+  is the minimal mechanism that lets the user become superadmin without a
+  manual DB edit. Deliberately promotion-only: removing an email from the
+  list never auto-demotes an already-promoted account, since demotion is a
+  more consequential, deliberate action than promotion and shouldn't be a
+  side effect of editing an env var. The role is snapshotted into
+  `AuthenticatedUser` at session-lookup time (one extra `select` field, no
+  extra query) rather than re-checked fresh on every request — traded a
+  small staleness window (a role change takes effect on next login, not
+  live mid-session) for not adding a DB round-trip to every authenticated
+  request, since no live "revoke this session's admin rights" scenario
+  exists yet to justify the extra query.
+- **Superadmin oversight covers both users and teams, not just users.**
+  The user's own framing — "I should see my clients' teams" — meant a flat
+  user list alone wasn't enough; `GET /api/v1/admin/teams` (with
+  member/project counts) was added alongside `GET /api/v1/admin/users`
+  after the user clarified mid-session, rather than treated as separate
+  follow-up scope.
+- **Invitations are token-based, not open "add by email directly."** Every
+  invitation is a real, persisted `Invitation` row (status `PENDING` ->
+  `ACCEPTED`/`REVOKED`/`EXPIRED`) with a token generated and hashed exactly
+  like a project API key (`randomBytes` + unsalted `sha256Hex`, raw value
+  shown exactly once). This works whether or not the invited email already
+  has an account — membership is created at *accept* time, not invite time,
+  so there's no "reject the invite because they haven't signed up yet"
+  failure mode the alternative (direct-add-if-registered) would have hit.
+- **Invitation emails are attempted for real (a genuine `EmailService`
+  abstraction, not just a token-in-response), but with no provider chosen
+  yet** — the user asked for actual delivery but hadn't picked a provider.
+  Followed the exact precedent `NotificationService` already set for this
+  situation (Phase 12): write the interface (`lib/email.ts`'s
+  `EmailService`), write one honest placeholder implementation
+  (`ConsoleEmailService`, which logs instead of pretending to deliver — per
+  "no fake functionality presented as working"), and route the one call site
+  through a `getEmailService()` factory so wiring in Resend/SMTP later
+  touches one function, not every call site. The raw token is *also* always
+  returned in the creation API response — not a fallback for when email
+  fails, but the actually-reliable path today, since no provider exists yet.
+- **A duplicate-pending-invite check is enforced at the application layer,
+  not a DB constraint.** Postgres can express "unique while
+  status=PENDING" only via a partial index, which isn't expressible in
+  Prisma's declarative schema DSL without dropping to a raw SQL migration.
+  `lib/invitation.ts`'s `createInvitation` checks for an existing `PENDING`
+  row before creating — same class of "small, documented, accepted race
+  window" trade-off as the existing in-memory rate limiter, not a new kind
+  of shortcut.
+- **A revoked/accepted/already-used invitation token 404s identically to one
+  that never existed** (`INVITATION_NOT_FOUND`) — reusing or guessing an old
+  token can't reveal it was ever valid, the same IDOR-safe reasoning as
+  `PROJECT_NOT_FOUND`. An expired-on-access token is the one deliberately
+  distinguishable case (`INVITATION_EXPIRED`, still a 404) since the
+  invitation did genuinely exist — lazily transitioned to `EXPIRED` on the
+  very request that discovers the expiry, no cron needed.
+  `INVITATION_EMAIL_MISMATCH` (403), by contrast, *is* distinguishable — it
+  doesn't leak another user's private data, only that some invitation exists
+  for some email, which possessing the token already proves.
+- **A team must always keep at least one `LEAD`.** Removing or demoting the
+  last remaining LEAD is blocked (`409 LAST_TEAM_LEAD`) — without this guard
+  a team could reach a state with zero members able to invite, assign to
+  others, rename, or delete it, with no way back in short of a manual DB
+  edit.
+- **Assignment permission (the user's explicit fourth decision): a LEAD may
+  assign any team member (or unassign); a MEMBER may only assign/unassign
+  themselves.** `lib/assignment.ts`'s `assignErrorGroup()` enforces this by
+  checking the acting user's `TeamRole` before validating the target — a
+  MEMBER attempting to touch someone else's assignment never even reaches
+  the "is the target a team member" check, so the response
+  (`INSUFFICIENT_ROLE`) doesn't accidentally leak whether the target id was
+  valid.
+- **Assignment notifications are built inline in the `PATCH` route, not
+  routed through `notify.ts`/`notificationRules.ts`.** Those exist
+  specifically for event-ingestion's `determineNotificationType()` decision
+  tree, keyed off `CapturedEventInput`/`PersistedEvent` — a manual assign
+  action isn't an ingested event and doesn't fit that shape. The
+  `ASSIGNED_ERROR` `NotificationType` variant and its title are added for
+  type-completeness (`notificationRules.ts`'s `TITLES` map must cover every
+  variant) but the real payload is built directly in the route, keeping
+  `notificationRules.ts` scoped to its one existing responsibility. No
+  notification fires on unassign — nothing actionable to notify about.
+- **No cascading unassign when a member is removed from a team while still
+  assigned to one of its error groups.** The assignment is left in place
+  (stale but harmless — `ErrorGroup.assigneeId` has no DB constraint tying
+  it to current team membership) rather than adding an automatic
+  unassign-on-removal side effect. Consistent with this repo's preference
+  for explicit, documented behavior over implicit "helpful" side effects;
+  revisit if this proves confusing in practice.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
@@ -802,6 +924,10 @@ re-litigate them without cause.
   host app needs it.
 - Real push provider integration (Expo Push, FCM): the `NotificationService`
   interface exists (Phase 12); no concrete provider is wired up.
+- Real email provider integration (Resend, SMTP, ...) for invitation emails:
+  the `EmailService` interface exists (Phase 14); no concrete provider is
+  wired up — the invitation-creation API response's raw token is the
+  reliable delivery path today.
 - Redis-backed (or otherwise multi-instance-correct) rate limiting: today's
   in-memory limiter (Phase 13) only counts correctly within a single process.
 - Sliding-window/token-bucket rate limiting: today's fixed-window limiter

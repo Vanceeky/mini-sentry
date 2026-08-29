@@ -15,7 +15,17 @@ export type ErrorCode =
   | "PROJECT_NOT_FOUND"
   | "ERROR_GROUP_NOT_FOUND"
   | "DEVICE_NOT_FOUND"
-  | "RATE_LIMITED";
+  | "RATE_LIMITED"
+  | "TEAM_NOT_FOUND"
+  | "FORBIDDEN"
+  | "INSUFFICIENT_ROLE"
+  | "NOT_A_TEAM_MEMBER"
+  | "INVITATION_NOT_FOUND"
+  | "INVITATION_EXPIRED"
+  | "INVITATION_EMAIL_MISMATCH"
+  | "INVITATION_ALREADY_PENDING"
+  | "PROJECT_NOT_ON_TEAM"
+  | "LAST_TEAM_LEAD";
 
 /**
  * Deliberately-thrown API errors. Anything else caught by the route
@@ -71,6 +81,37 @@ export const ERRORS = {
       `Too many requests. Try again in ${retryAfterSeconds} second(s).`,
       retryAfterSeconds,
     ),
+  // Same IDOR-safe rationale as PROJECT_NOT_FOUND/DEVICE_NOT_FOUND — identical
+  // whether the team id doesn't exist or belongs to a team the caller isn't on.
+  TEAM_NOT_FOUND: () => new ApiError("TEAM_NOT_FOUND", 404, "No team with this id exists for the current user."),
+  // Generic "authenticated but not authorized" — used by requireSuperAdmin.
+  FORBIDDEN: () => new ApiError("FORBIDDEN", 403, "You do not have permission to perform this action."),
+  // Distinct from FORBIDDEN: a team MEMBER (not a LEAD) tried to act on
+  // someone else's assignment — the catalog already differentiates this
+  // granularly elsewhere (DEVICE_NOT_FOUND vs PROJECT_NOT_FOUND), not a
+  // generic NOT_FOUND, so mirror that here rather than collapsing into FORBIDDEN.
+  INSUFFICIENT_ROLE: () =>
+    new ApiError("INSUFFICIENT_ROLE", 403, "Your role on this team does not allow this action."),
+  NOT_A_TEAM_MEMBER: () =>
+    new ApiError("NOT_A_TEAM_MEMBER", 400, "The specified user is not a member of this project's team."),
+  // Not found / wrong status / lazily-expired all collapse to this one code —
+  // a revoked/accepted/expired token must behave identically to a token that
+  // never existed, so guessing/reusing an old token can't reveal it was ever valid.
+  INVITATION_NOT_FOUND: () =>
+    new ApiError("INVITATION_NOT_FOUND", 404, "No pending invitation exists for this token."),
+  INVITATION_EXPIRED: () =>
+    new ApiError("INVITATION_EXPIRED", 404, "No pending invitation exists for this token."),
+  // This one *can* be distinguishable — it doesn't leak another user's data,
+  // just that some invitation exists for some email, which the token itself
+  // already proves; it just isn't addressed to the caller.
+  INVITATION_EMAIL_MISMATCH: () =>
+    new ApiError("INVITATION_EMAIL_MISMATCH", 403, "This invitation was not sent to your account's email address."),
+  INVITATION_ALREADY_PENDING: () =>
+    new ApiError("INVITATION_ALREADY_PENDING", 409, "A pending invitation already exists for this email on this team."),
+  PROJECT_NOT_ON_TEAM: () =>
+    new ApiError("PROJECT_NOT_ON_TEAM", 409, "This project is not attached to a team, so error groups cannot be assigned."),
+  LAST_TEAM_LEAD: () =>
+    new ApiError("LAST_TEAM_LEAD", 409, "Cannot remove or demote the last remaining LEAD of a team."),
   invalidEvent: (message: string) => new ApiError("INVALID_EVENT", 400, message),
   validationError: (message: string) => new ApiError("VALIDATION_ERROR", 400, message),
 };

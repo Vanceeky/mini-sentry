@@ -8,10 +8,10 @@ those frontends need to read backend source code to integrate.
 - **Versioning:** all endpoints are prefixed `/api/v1`
 - **Format:** JSON request/response bodies throughout
 
-This document covers the complete backend built across Phases 7–13:
+This document covers the complete backend built across Phases 7–14:
 Authentication, Projects, API Keys, Event Ingestion, Errors, Stats, Devices,
-and Notifications. Organized in that order below. See
-`docs/API_EXAMPLES.md` for runnable curl walkthroughs and
+Notifications, Teams, Invitations, and Admin. Organized in that order below.
+See `docs/API_EXAMPLES.md` for runnable curl walkthroughs and
 `docs/FRONTEND_HANDOFF.md` for an integration-focused guide aimed at the
 landing/dashboard/mobile teams building against this API.
 
@@ -36,12 +36,22 @@ cause is logged server-side only.
 | 401 | `INVALID_API_KEY` | The bearer token doesn't match any project |
 | 401 | `INVALID_CREDENTIALS` | (Login only) Email or password is incorrect — deliberately the same message/code either way, so a response can't be used to check whether an email is registered |
 | 401 | `INVALID_SESSION` | The bearer token doesn't match any active session (unknown, expired, or already logged out) |
-| 404 | `PROJECT_NOT_FOUND` | (Project-scoped endpoints) No project with this id is owned by the authenticated user — identical whether the id doesn't exist at all or belongs to someone else |
-| 404 | `ERROR_GROUP_NOT_FOUND` | (Error detail only) No error group with this id exists in the (already-confirmed-owned) project |
+| 404 | `PROJECT_NOT_FOUND` | (Project-scoped endpoints) No project with this id is accessible to the authenticated user (not the owner, and not on a team they're a member of) — identical whether the id doesn't exist at all or belongs to someone else |
+| 404 | `ERROR_GROUP_NOT_FOUND` | (Error detail only) No error group with this id exists in the (already-confirmed-accessible) project |
 | 404 | `DEVICE_NOT_FOUND` | (Device delete only) No device with this id is registered to the authenticated user — identical whether the id doesn't exist or belongs to someone else |
+| 404 | `TEAM_NOT_FOUND` | (Teams/Invitations) No team with this id exists for the authenticated user — identical whether the id doesn't exist or the caller isn't a member |
+| 404 | `INVITATION_NOT_FOUND` | (Invitations) No pending invitation exists for this token — identical for an unknown, already-used, or revoked token |
+| 404 | `INVITATION_EXPIRED` | (Invitation accept only) The token was valid but its invitation has expired (7-day TTL) |
 | 405 | `METHOD_NOT_ALLOWED` | Any HTTP verb other than the endpoint's documented method/`OPTIONS` |
+| 400 | `NOT_A_TEAM_MEMBER` | (Error assignment only) The given `assigneeId` isn't a member of the project's team |
+| 403 | `FORBIDDEN` | (Admin endpoints only) Authenticated, but not a `SUPERADMIN` |
+| 403 | `INSUFFICIENT_ROLE` | (Teams/Assignment) Authenticated and a team member, but the action requires `LEAD` (or, for assignment, requires acting on yourself) |
+| 403 | `INVITATION_EMAIL_MISMATCH` | (Invitation accept only) The token is valid, but wasn't addressed to the accepting account's email |
 | 409 | `EMAIL_ALREADY_REGISTERED` | (Register only) An account with this email already exists |
-| 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds the endpoint's size limit (32 KiB for events, 4 KiB for auth/projects/devices) |
+| 409 | `INVITATION_ALREADY_PENDING` | (Invitation create only) A pending invitation already exists for this team + email |
+| 409 | `PROJECT_NOT_ON_TEAM` | (Error assignment only) The project has no team attached, so there's no one to assign to besides the owner |
+| 409 | `LAST_TEAM_LEAD` | (Team member update/remove only) Cannot remove or demote the last remaining `LEAD` of a team |
+| 413 | `PAYLOAD_TOO_LARGE` | Request body exceeds the endpoint's size limit (32 KiB for events, 4 KiB for auth/projects/devices/teams/invitations/assignment) |
 | 429 | `RATE_LIMITED` | (Login, Event ingestion) Too many requests in the current window — a `Retry-After` header (seconds) is always attached |
 | 500 | `INTERNAL_ERROR` | Unexpected server failure — message is always generic |
 
@@ -89,10 +99,12 @@ Creates a developer account. Does **not** log the user in — call
 **Success response** — `201 Created`:
 
 ```json
-{ "success": true, "user": { "id": "usr_...", "name": "Ada Lovelace", "email": "ada@example.com", "createdAt": "..." } }
+{ "success": true, "user": { "id": "usr_...", "name": "Ada Lovelace", "email": "ada@example.com", "role": "USER", "createdAt": "..." } }
 ```
 
-The password is never returned or logged, in any form.
+`role` is `"USER"` unless the email is on the server's `SUPERADMIN_EMAILS`
+allowlist (see the Admin section) — checked here and re-checked on every
+login. The password is never returned or logged, in any form.
 
 **Errors:** `400 VALIDATION_ERROR`, `409 EMAIL_ALREADY_REGISTERED`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
 
@@ -105,7 +117,7 @@ The password is never returned or logged, in any form.
 **Success response** — `200 OK`:
 
 ```json
-{ "success": true, "token": "<opaque session token>", "user": { "id": "usr_...", "name": "...", "email": "..." } }
+{ "success": true, "token": "<opaque session token>", "user": { "id": "usr_...", "name": "...", "email": "...", "role": "USER" } }
 ```
 
 `token` is shown exactly once — store it (the frontend's choice how: memory,
@@ -131,7 +143,7 @@ window; further attempts get `429 RATE_LIMITED` with a `Retry-After` header
 **Success response** — `200 OK`:
 
 ```json
-{ "success": true, "user": { "id": "usr_...", "name": "Ada Lovelace", "email": "ada@example.com" } }
+{ "success": true, "user": { "id": "usr_...", "name": "Ada Lovelace", "email": "ada@example.com", "role": "USER" } }
 ```
 
 Never includes a password hash.
@@ -159,12 +171,17 @@ unrecognized, not to skipping auth entirely.
 
 **Authentication:** every endpoint below requires a **user session token**
 (`Authorization: Bearer <sessionToken>` from `/auth/login`) — never a project
-API key. A project belongs to exactly one user (its creator); every endpoint
-is scoped to the authenticated user's own projects and returns
-`404 PROJECT_NOT_FOUND` — not `403` — for a project id that either doesn't
-exist or belongs to someone else. This is deliberate: a `403` would confirm
-the id refers to a *real* project (just not yours); `404` reveals nothing.
-See `plans/DECISIONS.md`.
+API key. A project has exactly one **owner** (its creator) and, optionally
+(Phase 14), one attached **team** — see the Teams section below. Only the
+owner can rename, delete, rotate the key, or attach/detach a team (this
+section and the endpoints below); a project's team, when attached, only
+grants its members read access to error data and the ability to assign error
+groups (see the Errors section's `PATCH` endpoint) — attaching a team is not
+the same as transferring ownership. Every endpoint below is scoped to
+projects the authenticated user owns and returns `404 PROJECT_NOT_FOUND` —
+not `403` — for a project id that either doesn't exist or belongs to someone
+else. This is deliberate: a `403` would confirm the id refers to a *real*
+project (just not yours); `404` reveals nothing. See `plans/DECISIONS.md`.
 
 None of these endpoints ever return a project's full API key **except**
 creation and rotation (see the API Keys section below), and only in that one
@@ -224,6 +241,28 @@ Renames a project — `name` is the only editable field today.
 
 Deletes the project and **cascades** to all of its `ErrorGroup`/`ErrorEvent`
 rows — irreversible, no confirmation step, no soft-delete/undo.
+
+**Success response** — `200 OK`: `{ "success": true }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `PUT /api/v1/projects/:projectId/team`
+
+**Authentication:** required, **owner only**. Attaches the project to a team
+the owner already belongs to (as any role).
+
+**Request body:** `{ "teamId": "team_..." }`
+
+**Success response** — `200 OK`: `{ "success": true }`
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `404 TEAM_NOT_FOUND` (the owner isn't a member of the given team), `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+
+### `DELETE /api/v1/projects/:projectId/team`
+
+**Authentication:** required, **owner only**. Detaches the project's team, if
+any — every team member (other than the owner) immediately loses access to
+the project's error data. Idempotent-ish: detaching an already-teamless
+project still returns `200`.
 
 **Success response** — `200 OK`: `{ "success": true }`
 
@@ -327,9 +366,10 @@ notification fired.
 ## Errors
 
 **Authentication:** every endpoint below requires a **user session token**,
-scoped to the authenticated user's own project — the same ownership check and
-`404 PROJECT_NOT_FOUND` behavior as Projects. The web dashboard and the
-mobile app both consume these exact same endpoints; there are no
+scoped to a project the authenticated user can access — either as its owner,
+or (Phase 14) as a member of its attached team — the same
+`404 PROJECT_NOT_FOUND` behavior as Projects either way. The web dashboard and
+the mobile app both consume these exact same endpoints; there are no
 mobile-specific duplicates.
 
 Every list endpoint returns the same pagination shape:
@@ -396,6 +436,31 @@ four are `null` for `"http"`/`"unhandledrejection"` events, or for an
 `occurrences.data` is always ordered most-recent-first.
 
 **Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 PROJECT_NOT_FOUND`, `404 ERROR_GROUP_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `PATCH /api/v1/projects/:projectId/errors/:errorGroupId`
+
+Assigns (or unassigns) an error group to a member of the project's team
+(Phase 14). Only meaningful for a project with a team attached — see
+`PUT /api/v1/projects/:projectId/team` above.
+
+**Request body:** `{ "assigneeId": "usr_..." }` or `{ "assigneeId": null }` to unassign.
+
+**Permissions:** a team `LEAD` may assign to (or unassign) any member of the
+project's team. A regular `MEMBER` may only assign the group to themselves,
+or unassign themselves — not touch another member's assignment.
+
+**Success response** — `200 OK`:
+
+```json
+{ "success": true, "group": { "id": "...", "message": "...", "assigneeId": "usr_..." } }
+```
+
+**Side effect:** on a successful non-null assignment, this best-effort
+notifies the assignee via the same notification mechanism as Event Ingestion
+(see Notifications below) — a notification failure never affects this
+endpoint's response. No notification fires on unassign.
+
+**Errors:** `400 VALIDATION_ERROR`, `400 NOT_A_TEAM_MEMBER` (the given `assigneeId` isn't on the project's team), `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 INSUFFICIENT_ROLE` (a `MEMBER` tried to assign someone other than themselves), `404 PROJECT_NOT_FOUND`, `404 ERROR_GROUP_NOT_FOUND`, `409 PROJECT_NOT_ON_TEAM`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
 
 ### `GET /api/v1/projects/:projectId/events`
 
@@ -527,6 +592,206 @@ repeat occurrence of an already-active group triggers nothing.
 event's own `message` otherwise. Registering/removing the devices that
 receive these notifications is documented under Devices above.
 
+`ASSIGNED_ERROR` (Phase 14) is a fourth trigger, fired only by the error
+assignment endpoint (see the Errors section's `PATCH` endpoint above), never
+by event ingestion — it doesn't compete with the three ingestion-time
+triggers above and can fire alongside one of them on the same error group.
+
+## Teams
+
+Phase 14: an org-style grouping of users that can jointly access one or more
+projects. A project's direct **owner** (see Projects above) decides whether
+to attach it to a team they belong to; once attached, every team member gets
+read access to that project's error data and can assign error groups (see
+the Errors section's `PATCH` endpoint) — attaching a team never transfers
+project ownership itself.
+
+**Authentication:** every endpoint below requires a **user session token**.
+Team endpoints return `404 TEAM_NOT_FOUND` — not `403` — for a team id that
+either doesn't exist or the caller isn't a member of, the same IDOR-safe
+reasoning as `PROJECT_NOT_FOUND`.
+
+Every team has exactly one role besides plain membership: `LEAD`. A team can
+have multiple LEADs. The user who creates a team is automatically its first
+LEAD.
+
+### `GET /api/v1/teams`
+
+Lists every team the authenticated user belongs to (any role).
+
+**Success response** — `200 OK`: `{ "success": true, "teams": [{ "id", "name", "createdById", "createdAt", "updatedAt" }] }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `500 INTERNAL_ERROR`.
+
+### `POST /api/v1/teams`
+
+Creates a team — the caller becomes its first `LEAD`.
+
+**Request body:** `{ "name": "Rocket" }`
+
+**Success response** — `201 Created`: `{ "success": true, "team": { "id", "name", "createdById", "createdAt", "updatedAt" } }`
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+
+### `GET /api/v1/teams/:teamId`
+
+**Success response** — `200 OK`: `{ "success": true, "team": { ... } }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 TEAM_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `PATCH /api/v1/teams/:teamId`
+
+Renames a team. **`LEAD` only.**
+
+**Request body:** `{ "name": "New Name" }`
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 INSUFFICIENT_ROLE`, `404 TEAM_NOT_FOUND`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+
+### `DELETE /api/v1/teams/:teamId`
+
+Deletes the team. **`LEAD` only.** Projects attached to this team are
+**detached**, not deleted — their error data is untouched, they simply
+revert to owner-only access.
+
+**Success response** — `200 OK`: `{ "success": true }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 INSUFFICIENT_ROLE`, `404 TEAM_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `GET /api/v1/teams/:teamId/members`
+
+**Success response** — `200 OK`: `{ "success": true, "members": [{ "userId", "name", "email", "role", "createdAt" }] }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `404 TEAM_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `PATCH /api/v1/teams/:teamId/members/:userId`
+
+Changes a member's role. **`LEAD` only.** Blocked if it would leave the team
+with zero `LEAD`s.
+
+**Request body:** `{ "role": "LEAD" | "MEMBER" }`
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 INSUFFICIENT_ROLE`, `404 TEAM_NOT_FOUND`, `409 LAST_TEAM_LEAD`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+
+### `DELETE /api/v1/teams/:teamId/members/:userId`
+
+Removes a member. A `LEAD` can remove anyone; any member can remove
+**themselves** ("leave team") regardless of role. Blocked if it would leave
+the team with zero `LEAD`s.
+
+**Success response** — `200 OK`: `{ "success": true }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 INSUFFICIENT_ROLE`, `404 TEAM_NOT_FOUND`, `409 LAST_TEAM_LEAD`, `500 INTERNAL_ERROR`.
+
+## Invitations
+
+Phase 14: how someone joins a team. There is no email-delivery mechanism in
+this backend (the same reason password reset was deferred — see
+`plans/DECISIONS.md`), so an invitation's raw token is returned directly in
+the creation response, and this backend *also* best-effort attempts to email
+it (see `backend/src/lib/email.ts`) — today that's a logging-only placeholder
+(no provider is configured yet), so **the token in the API response is the
+reliable way to deliver an invite**, not a fallback.
+
+### `GET /api/v1/teams/:teamId/invitations`
+
+Lists the team's pending invitations. **`LEAD` only.**
+
+**Success response** — `200 OK`: `{ "success": true, "invitations": [{ "id", "teamId", "invitedEmail", "invitedRole", "status", "expiresAt", "createdAt" }] }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 INSUFFICIENT_ROLE`, `404 TEAM_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `POST /api/v1/teams/:teamId/invitations`
+
+Creates an invitation. **`LEAD` only.** Rejects a duplicate pending
+invitation for the same team + email.
+
+**Request body:** `{ "email": "bob@example.com", "role": "MEMBER" }` (`role` defaults to `MEMBER`)
+
+**Success response** — `201 Created`:
+
+```json
+{ "success": true, "invitation": { "id": "...", "invitedEmail": "bob@example.com", "invitedRole": "MEMBER", "status": "PENDING", "expiresAt": "..." }, "token": "<raw invite token>" }
+```
+
+`token` is shown **exactly once**, here — there is no way to retrieve it
+again afterward. It expires after 7 days.
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 INSUFFICIENT_ROLE`, `404 TEAM_NOT_FOUND`, `409 INVITATION_ALREADY_PENDING`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+
+### `DELETE /api/v1/teams/:teamId/invitations/:invitationId`
+
+Revokes a pending invitation. **`LEAD` only.**
+
+**Success response** — `200 OK`: `{ "success": true }`
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 INSUFFICIENT_ROLE`, `404 TEAM_NOT_FOUND`, `404 INVITATION_NOT_FOUND`, `500 INTERNAL_ERROR`.
+
+### `GET /api/v1/invitations/mine`
+
+Lists pending invitations addressed to the authenticated user's own account
+email — how a newly-registered (or existing) user discovers they've been
+invited somewhere, without needing to already know a team id.
+
+**Success response** — `200 OK`: same invitation shape as the team-scoped list above.
+
+**Errors:** `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `500 INTERNAL_ERROR`.
+
+### `POST /api/v1/invitations/accept`
+
+Accepts an invitation and joins its team, at the role the invitation
+specified. Idempotent if the caller is already a member (marks the
+invitation `ACCEPTED` without creating a duplicate membership row).
+
+**Request body:** `{ "token": "<raw invite token>" }`
+
+**Success response** — `200 OK`: `{ "success": true, "teamId": "team_..." }`
+
+An unknown, already-used, or revoked token all produce the identical
+`404 INVITATION_NOT_FOUND` — deliberately, so a caller can't use the response
+to determine whether a guessed token was ever valid. A token that's expired
+(and therefore lazily transitioned to `EXPIRED` on this very request) is the
+one distinguishable case, `404 INVITATION_EXPIRED`, since the invitation did
+genuinely exist. `403 INVITATION_EMAIL_MISMATCH` fires when the token is
+valid but wasn't addressed to the accepting account's email — this doesn't
+leak another user's data, only that *some* invitation exists for *some*
+email, which the token itself already proves.
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 INVITATION_EMAIL_MISMATCH`, `404 INVITATION_NOT_FOUND`, `404 INVITATION_EXPIRED`, `413 PAYLOAD_TOO_LARGE`, `500 INTERNAL_ERROR`.
+
+## Admin
+
+Phase 14: read-only oversight for a **superadmin** — a role granted only via
+the server's `SUPERADMIN_EMAILS` environment variable (comma-separated
+emails), re-checked (and promoted, if newly matching) on every login/register.
+Promotion-only: removing an email from the allowlist does not demote an
+already-promoted account. There is no endpoint to grant/revoke this role over
+the API — it's an environment-level bootstrap, not a user-manageable
+permission.
+
+**Authentication:** every endpoint below requires a **user session token**
+belonging to a `SUPERADMIN` account; anyone else gets `403 FORBIDDEN`.
+
+### `GET /api/v1/admin/users`
+
+Every registered user in the system, newest first.
+
+**Query params:** `page`, `limit` (same pagination shape as Errors above).
+
+**Success response** — `200 OK`: `{ "success": true, "data": [{ "id", "name", "email", "role", "createdAt" }], "pagination": { ... } }`
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`.
+
+### `GET /api/v1/admin/teams`
+
+Every team in the system ("your clients"), with member/project counts —
+distinct from `GET /api/v1/teams`, which only lists the caller's own teams.
+
+**Query params:** `page`, `limit`.
+
+**Success response** — `200 OK`: `{ "success": true, "data": [{ "id", "name", "createdAt", "createdBy": { "id", "name", "email" } | null, "memberCount", "projectCount" }], "pagination": { ... } }`
+
+**Errors:** `400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `401 INVALID_SESSION`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`.
+
 ## CORS
 
 Applies to **every** endpoint in this API, not just event ingestion —
@@ -569,7 +834,7 @@ would otherwise count independently. Exceeding a limit returns
 `429 RATE_LIMITED` with a `Retry-After` header (seconds until the window
 resets).
 
-## Known limitations (Phases 7–13)
+## Known limitations (Phases 7–14)
 
 - `os` and `metadata` exist as columns in the database but are always `null`
   — the current SDK contract has no data for either (no user-agent parsing,
@@ -618,6 +883,33 @@ resets).
 - **At most one notification per event, chosen by a fixed priority order**
   (`NEW_ERROR` > `SERIOUS_ERROR` > `REACTIVATED_ERROR`) — not a scoring
   engine; a single event can never trigger more than one notification.
+- **No cascading unassign when a member is removed from a team while still
+  assigned to one of its error groups** — the (now stale) assignment is left
+  in place rather than automatically cleared. Revisit if this causes
+  confusion in practice.
+- **Invitation uniqueness ("no duplicate pending invite per team+email") is
+  enforced at the application layer, not a database constraint** — Postgres
+  can only express "unique while status=PENDING" via a partial index, which
+  isn't expressible in Prisma's schema DSL. A small race window exists under
+  concurrent invitation creation, same class of trade-off as the in-memory
+  rate limiter.
+- **Invitation emails are logged, not delivered** — same situation as push
+  notifications: no email provider (Resend, SMTP, ...) is wired up yet, so
+  `sendInvitationEmail` just logs what would be sent. The raw token in the
+  invitation-creation API response is the actually-reliable way to deliver an
+  invite today, not a fallback.
+- **Superadmin role is snapshotted into the session token at login** — a role
+  change (via editing `SUPERADMIN_EMAILS`) only takes effect on that user's
+  *next* login, not live mid-session. There's no way to force-expire an
+  existing session's cached role.
+- **No endpoint to grant/revoke SUPERADMIN over the API** — it's bootstrapped
+  purely via the `SUPERADMIN_EMAILS` environment variable, checked at
+  login/register. Promotion-only: removing an email from the list doesn't
+  demote an already-promoted account.
+- **A project's team grants access, not co-ownership** — team members
+  (including LEADs) can read error data and manage assignment, but only the
+  project's direct owner can rename/delete it, rotate its API key, or
+  attach/detach a team.
 
 See `docs/API_EXAMPLES.md` for runnable curl examples and local setup steps,
 and `docs/FRONTEND_HANDOFF.md` for an end-to-end integration guide.

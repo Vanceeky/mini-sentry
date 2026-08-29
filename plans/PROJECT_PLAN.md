@@ -35,11 +35,14 @@ repository state (not assumed from a prior session).
 | 11 | Backend: Error Query / Dashboard API (list/detail/stats, used by web dashboard + mobile) | Complete |
 | 12 | Backend: Realtime/Notification foundation (device registration, notification service abstraction) | Complete |
 | 13 | Backend: API Hardening & Handoff (docs, integration tests, security review) | Complete |
+| 14 | Backend: Teams, Roles & Assignment (org-style team ownership of projects, invitations, superadmin bootstrap + oversight, error-group assignment) | Complete |
 
 The backend (Phases 7–13) was built for three separate frontend teams
 (landing/onboarding web app, web dashboard, mobile app) working independently
 against the REST contract in `docs/API.md` — this repo does not build any of
-those UIs, only the backend/API. All 13 phases are now complete; see
+those UIs, only the backend/API. All 13 phases were complete before Phase 14
+(new scope, confirmed with the user rather than pre-planned) added
+multi-user collaboration on top of the single-owner model. See
 `DECISIONS.md` for the reasoning behind non-obvious choices made along the
 way, and `docs/FRONTEND_HANDOFF.md` for the integration guide aimed at those
 three teams.

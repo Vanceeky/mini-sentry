@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import { resolveProjectAccess } from "@/lib/access";
 import { requireSessionUser } from "@/lib/authGuard";
 import { resolveCorsHeaders } from "@/lib/cors";
 import { ApiError, ERRORS, jsonError } from "@/lib/errors";
 import { getProjectStats } from "@/lib/errorQuery";
-import { findOwnedProject } from "@/lib/project";
 
 interface RouteContext {
   params: Promise<{ projectId: string }>;
@@ -23,7 +23,7 @@ export async function GET(request: Request, { params }: RouteContext): Promise<N
     const user = await requireSessionUser(request);
     const { projectId } = await params;
 
-    const project = await findOwnedProject(user.id, projectId);
+    const project = await resolveProjectAccess(user.id, projectId);
     if (!project) {
       return jsonError(ERRORS.PROJECT_NOT_FOUND(), cors);
     }

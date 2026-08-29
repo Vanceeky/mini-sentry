@@ -1,6 +1,10 @@
 import { prisma } from "./db";
 
-export type NotificationType = "NEW_ERROR" | "SERIOUS_ERROR" | "REACTIVATED_ERROR";
+// ASSIGNED_ERROR (Phase 14) is built and sent inline from the assignment
+// route, not through notify.ts/notificationRules.ts — those are keyed off
+// ingestion's CapturedEventInput/PersistedEvent, which a manual assign
+// action doesn't produce. See DECISIONS.md.
+export type NotificationType = "NEW_ERROR" | "SERIOUS_ERROR" | "REACTIVATED_ERROR" | "ASSIGNED_ERROR";
 
 /** Deep-links a mobile client to the specific error that triggered it. */
 export interface NotificationPayload {

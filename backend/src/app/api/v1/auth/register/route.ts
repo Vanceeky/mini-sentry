@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { syncSuperAdminRole } from "@/lib/adminGuard";
 import { registerSchema } from "@/lib/authSchema";
 import { resolveCorsHeaders } from "@/lib/cors";
 import { MAX_AUTH_PAYLOAD_BYTES } from "@/lib/constants";
@@ -40,7 +41,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     try {
       user = await prisma.user.create({
         data: { name, email, passwordHash: hashPassword(password) },
-        select: { id: true, name: true, email: true, createdAt: true },
+        select: { id: true, name: true, email: true, role: true, createdAt: true },
       });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -49,7 +50,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       throw error;
     }
 
-    return NextResponse.json({ success: true, user }, { status: 201, headers: cors });
+    const role = await syncSuperAdminRole(user.id, user.email, user.role);
+
+    return NextResponse.json({ success: true, user: { ...user, role } }, { status: 201, headers: cors });
   } catch (error) {
     if (error instanceof ApiError) {
       return jsonError(error, cors);
