@@ -1343,6 +1343,30 @@ invitations, per-project CORS, password reset, etc.) is tracked in
 `plans/DECISIONS.md`'s Deferred section, to be picked up only when
 explicitly instructed.
 
+## Post-Phase-14 — Deploy readiness (Vercel + Neon)
+
+**Status:** Complete (not a phase — the user is deploying to Vercel + Neon
+and asked what's needed; see `plans/DECISIONS.md`'s Post-Phase-14 section
+for the reasoning).
+
+**What was built:** `schema.prisma`'s datasource split into `url` (pooled,
+what the app uses) and `directUrl` (unpooled, what Prisma migrations use) —
+required for Neon's PgBouncer pooler; `backend/package.json`'s `build`
+script changed to `"prisma generate && next build"` so a fresh Vercel build
+can't skip client generation; added a `db:deploy` (`prisma migrate deploy`)
+script as the non-interactive counterpart to `db:migrate`.
+
+**Tests performed:** `npm run typecheck -w backend` clean;
+`npm run test -w backend` — 395 passed, 0 failed (an earlier run hit
+spurious 500s because the local Docker Postgres container had stopped
+between sessions — restarted via `colima start` + `docker start
+backend-db-1`, unrelated to this change, confirmed by rerunning green);
+`npm run build -w backend` — all 25 routes compiled.
+
+**Also produced:** a standalone snapshot of `backend/` (no shared git
+history) pushed to a new repo, `Vanceeky/canary-backend`, for a clean Vercel
+deploy target — see that repo's own README for its specifics.
+
 ## Post-Phase-13 — Web app + SDK/backend enhancements
 
 **Status:** Complete (not a numbered phase — new scope confirmed with the

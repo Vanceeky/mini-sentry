@@ -917,6 +917,35 @@ assumed.
   for explicit, documented behavior over implicit "helpful" side effects;
   revisit if this proves confusing in practice.
 
+## Post-Phase-14 — Deploy readiness (Vercel + Neon)
+
+New scope, not a phase: the user is deploying the backend to Vercel with
+Neon Postgres and asked what's needed first. Two changes made proactively
+since they're correctness fixes for that specific target, not new features:
+
+- **`schema.prisma`'s datasource gained a `directUrl`, split from `url`.**
+  Neon (and any pooled Postgres) gives two connection strings: a pooled one
+  (PgBouncer, the "-pooler" endpoint) meant for a serverless app that can
+  open many concurrent short-lived connections, and a direct one that
+  `prisma migrate dev`/`deploy` needs, since migrations can't run reliably
+  through a transaction-mode pooler. `url` (what `lib/db.ts`'s client uses at
+  runtime) takes the pooled string; `directUrl` (what the Prisma CLI uses)
+  takes the direct one. Locally both env vars just point at the same
+  docker-compose Postgres, since there's no pooler in dev.
+- **`backend/package.json`'s `build` script changed to
+  `"prisma generate && next build"`.** Previously just `"next build"` —
+  works locally because `db:generate` had already been run by hand, but is
+  fragile on a fresh Vercel build (especially with build-cache reuse) where
+  nothing guarantees the generated client is present or current. Also added
+  `db:deploy` (`prisma migrate deploy`) as the non-interactive counterpart to
+  `db:migrate` (`prisma migrate dev`, which prompts and is dev-only) — this
+  is what actually runs against a production database.
+- **CORS_ALLOWED_ORIGINS still has no wildcard/pattern support** (Phase 7's
+  original decision) — a Vercel preview deployment's `*.vercel.app` URL
+  won't match the production-domain allowlist. Not changed: still exact
+  match only, per that phase's reasoning. Flagged to the user as an expected
+  rough edge for preview builds, not a bug to fix now.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief

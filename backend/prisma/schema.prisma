@@ -2,9 +2,16 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// url is the pooled connection string (e.g. Neon's PgBouncer "-pooler"
+// endpoint) — what the running app uses, since a serverless deployment can
+// open many concurrent short-lived connections. directUrl is the direct
+// (unpooled) connection string, used only by `prisma migrate deploy`/`dev`,
+// which can't run reliably through a pooler. Locally, both can point at the
+// same docker-compose Postgres — see .env.example.
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
