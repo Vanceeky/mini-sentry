@@ -1367,6 +1367,19 @@ backend-db-1`, unrelated to this change, confirmed by rerunning green);
 history) pushed to a new repo, `Vanceeky/canary-backend`, for a clean Vercel
 deploy target — see that repo's own README for its specifics.
 
+**Follow-up fix:** `POST /api/v1/events` now uses a new, deliberately open
+CORS function (`lib/cors.ts`'s `resolveEventsCorsHeaders()` — literal
+`Access-Control-Allow-Origin: "*"`), separate from the strict allowlist
+every other route still uses. The user confirmed the SDK is embedded on
+arbitrary third-party customer websites, which a fixed domain allowlist can
+never enumerate — see `plans/DECISIONS.md`'s Post-Phase-14 section for the
+full reasoning (why it's safe: API-key, not cookie, authentication). 4 new
+tests added (`lib/cors.test.ts`), 3 existing `events/route.test.ts` tests
+updated for the new behavior. 399 tests passing, typecheck clean, build
+succeeds; live-verified via curl preflight against a running dev server —
+`/api/v1/events` now accepts a never-allowlisted origin, `/api/v1/projects`
+(and, by the same code path, every other route) still correctly rejects it.
+
 ## Post-Phase-13 — Web app + SDK/backend enhancements
 
 **Status:** Complete (not a numbered phase — new scope confirmed with the

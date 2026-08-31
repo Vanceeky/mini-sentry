@@ -940,11 +940,30 @@ since they're correctness fixes for that specific target, not new features:
   `db:deploy` (`prisma migrate deploy`) as the non-interactive counterpart to
   `db:migrate` (`prisma migrate dev`, which prompts and is dev-only) — this
   is what actually runs against a production database.
-- **CORS_ALLOWED_ORIGINS still has no wildcard/pattern support** (Phase 7's
-  original decision) — a Vercel preview deployment's `*.vercel.app` URL
-  won't match the production-domain allowlist. Not changed: still exact
-  match only, per that phase's reasoning. Flagged to the user as an expected
-  rough edge for preview builds, not a bug to fix now.
+- **CORS_ALLOWED_ORIGINS still has no wildcard/pattern support for the
+  allowlist-gated routes** (Phase 7's original decision) — a Vercel preview
+  deployment's `*.vercel.app` URL won't match the production-domain
+  allowlist. Not changed for those routes: still exact match only, per that
+  phase's reasoning. Flagged to the user as an expected rough edge for
+  preview builds, not a bug to fix now.
+- **`POST /api/v1/events` got its own, deliberately open CORS function
+  (`lib/cors.ts`'s `resolveEventsCorsHeaders()`), separate from the
+  allowlist-based `resolveCorsHeaders()` every other route uses.** The user
+  confirmed the real architecture: the SDK is embedded on arbitrary,
+  unknowable-in-advance third-party customer websites (like Sentry/Rollbar),
+  so a fixed domain allowlist can never work for this one endpoint — it's
+  not a security relaxation so much as a correctness fix for what this
+  endpoint's callers actually are. Safe specifically because this endpoint
+  authenticates via a project API key in the `Authorization` header, never a
+  cookie — a page on an arbitrary origin can't forge a request using a key
+  it doesn't have, so there's no CSRF-style risk in accepting any origin
+  the way there would be for a cookie-authenticated endpoint. Returns a
+  literal `Access-Control-Allow-Origin: "*"` (not a reflected origin) since
+  no `Access-Control-Allow-Credentials` is ever sent here — valid per the
+  CORS spec without needing per-origin reflection. Every other route
+  (teams, projects, admin, auth, dashboard queries) is unaffected and keeps
+  the original strict allowlist, since those are for the operator's own
+  dashboard, not arbitrary third parties.
 
 ## Deferred (future phases, not implemented now)
 

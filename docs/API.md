@@ -794,12 +794,12 @@ distinct from `GET /api/v1/teams`, which only lists the caller's own teams.
 
 ## CORS
 
-Applies to **every** endpoint in this API, not just event ingestion —
-browsers call this API directly (the SDK from end-user pages, the
-landing/dashboard apps from their own origins), so every route supports CORS
-the same way, via **an explicit allowlist of origins** configured by the
-`CORS_ALLOWED_ORIGINS` environment variable (comma-separated exact origins).
-It is never a wildcard (`*`).
+Two different CORS policies apply, depending on the endpoint:
+
+**Every endpoint except `POST /api/v1/events`** supports CORS via **an
+explicit allowlist of origins**, configured by the `CORS_ALLOWED_ORIGINS`
+environment variable (comma-separated exact origins). It is never a
+wildcard (`*`) here.
 
 - An allowed origin gets `Access-Control-Allow-Origin` reflected back, plus
   `Access-Control-Allow-Methods` (the endpoint's method + `OPTIONS`) and
@@ -807,6 +807,24 @@ It is never a wildcard (`*`).
 - A disallowed or missing `Origin` gets **no** CORS headers on either the
   preflight (`OPTIONS`) or the actual response — the browser blocks the
   request client-side.
+- This is the right policy for the landing page/dashboard's own origin(s) —
+  known, stable domains you control.
+
+**`POST /api/v1/events`** (and its `OPTIONS` preflight) is the one
+exception: it always returns a **literal `Access-Control-Allow-Origin: "*"`**,
+regardless of `CORS_ALLOWED_ORIGINS`. This is deliberate, not an oversight:
+the SDK is meant to be embedded on arbitrary third-party websites (the whole
+point of a client-side error-monitoring SDK, the same way Sentry/Rollbar's
+own ingest endpoints work) — those domains can never be enumerated in
+advance, so a fixed allowlist can't express "any site that installs the
+SDK." This is safe specifically because this endpoint authenticates via a
+project **API key** in the `Authorization` header, never a cookie — a page
+on an arbitrary origin can't forge a request using a key it doesn't have,
+so there's none of the CSRF-style risk that would come with opening a
+cookie-authenticated endpoint this way.
+
+Both policies share the rest of the same behavior:
+
 - Non-browser callers (curl, server-to-server, the mobile app's HTTP client)
   are entirely unaffected by CORS — it's a browser-only enforcement
   mechanism.
@@ -815,12 +833,13 @@ It is never a wildcard (`*`).
   first. `GET /api/v1/auth/me` also supports `OPTIONS`, for consistency.
 - No `Access-Control-Allow-Credentials` is ever sent — this API never uses
   cookies, only bearer tokens, so there's nothing credentialed for a browser
-  to attach.
+  to attach. This is also what makes a literal `"*"` valid for
+  `/api/v1/events` per the CORS spec, without needing to reflect the
+  caller's origin.
 
-Per-project origin allowlisting (letting a project owner register their own
-site's origin) is a natural extension for a future phase, now that the
-Projects API provides an authenticated API a dashboard could build that UI on
-top of — not implemented yet, see Known Limitations.
+Per-project origin allowlisting for the allowlist-gated routes (letting a
+project owner register their own site's origin) is a natural extension for
+a future phase — not implemented yet, see Known Limitations.
 
 ## Rate Limiting
 
@@ -843,7 +862,10 @@ resets).
 - Resource-load-failure capture (`type: "resource"`) only covers `<img>`,
   `<script src>`, and `<link href>` — not `<audio>`/`<video>`/`<iframe>` or
   assets loaded via CSS (`background-image`, `@import`).
-- CORS is a single global allowlist (env var), not per-project yet.
+- CORS is a single global allowlist (env var), not per-project yet — applies
+  to every endpoint except `POST /api/v1/events`, which is deliberately open
+  to any origin (API-key authenticated, not cookie-authenticated — see the
+  CORS section above).
 - Rate limiting is in-memory and per-process (see Rate Limiting above) — not
   correct for a horizontally-scaled multi-instance deployment.
 - No pagination on `GET /api/v1/projects` — fine while a developer's project

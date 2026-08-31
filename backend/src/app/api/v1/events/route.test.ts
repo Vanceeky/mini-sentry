@@ -44,16 +44,12 @@ function postRequest(body: unknown, init: { auth?: string; origin?: string; raw?
 }
 
 describe("POST /api/v1/events", () => {
-  const originalEnv = process.env.CORS_ALLOWED_ORIGINS;
-
   beforeEach(() => {
-    process.env.CORS_ALLOWED_ORIGINS = "http://localhost:5173";
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
-    process.env.CORS_ALLOWED_ORIGINS = originalEnv;
     vi.restoreAllMocks();
     vi.doUnmock("@/lib/apiKey");
     vi.doUnmock("@/lib/persistEvent");
@@ -143,10 +139,10 @@ describe("POST /api/v1/events", () => {
     expect(body.error.message).toBe("An internal error occurred. Please try again later.");
   });
 
-  it("attaches CORS headers for an allowed origin", async () => {
+  it("attaches a wildcard Access-Control-Allow-Origin for any origin", async () => {
     const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
     const response = await POST(postRequest(sampleEvent, { auth: "Bearer good-key", origin: "http://localhost:5173" }));
-    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
   });
 
   it("returns 429 RATE_LIMITED after exceeding the per-project event limit", async () => {
@@ -211,33 +207,29 @@ describe("POST /api/v1/events", () => {
     expect((await response.json()) as unknown).toEqual({ success: true, eventId: "evt_abc-123" });
   });
 
-  it("omits CORS headers for a disallowed origin", async () => {
+  it("attaches a wildcard Access-Control-Allow-Origin even for an origin absent from CORS_ALLOWED_ORIGINS", async () => {
+    // Unlike every other route, this endpoint deliberately doesn't consult
+    // the allowlist at all — it must work for arbitrary customer sites the
+    // SDK is embedded on, which can never be enumerated in advance. Safe
+    // because auth here is a project API key header, never a cookie.
     const { POST } = await freshRoute({ id: "proj_1", name: "Test", ownerId: null });
-    const response = await POST(postRequest(sampleEvent, { auth: "Bearer good-key", origin: "https://evil.example.com" }));
-    expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    const response = await POST(
+      postRequest(sampleEvent, { auth: "Bearer good-key", origin: "https://some-random-customer-site.example.com" }),
+    );
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
   });
 });
 
 describe("OPTIONS /api/v1/events", () => {
-  const originalEnv = process.env.CORS_ALLOWED_ORIGINS;
-
-  beforeEach(() => {
-    process.env.CORS_ALLOWED_ORIGINS = "http://localhost:5173";
-  });
-
-  afterEach(() => {
-    process.env.CORS_ALLOWED_ORIGINS = originalEnv;
-  });
-
-  it("returns 204 with CORS headers for an allowed origin preflight", async () => {
+  it("returns 204 with a wildcard Access-Control-Allow-Origin for any preflight origin", async () => {
     const { OPTIONS } = await freshRoute(null);
     const request = new Request("http://localhost:3000/api/v1/events", {
       method: "OPTIONS",
-      headers: { Origin: "http://localhost:5173", "Access-Control-Request-Method": "POST" },
+      headers: { Origin: "https://some-random-customer-site.example.com", "Access-Control-Request-Method": "POST" },
     });
     const response = await OPTIONS(request);
     expect(response.status).toBe(204);
-    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
   });
 });
 

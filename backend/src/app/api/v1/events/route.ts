@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { extractBearerToken, findProjectByApiKey } from "@/lib/apiKey";
-import { resolveCorsHeaders } from "@/lib/cors";
+import { resolveEventsCorsHeaders } from "@/lib/cors";
 import { EVENT_RATE_LIMIT_MAX, EVENT_RATE_LIMIT_WINDOW_MS, MAX_EVENT_PAYLOAD_BYTES } from "@/lib/constants";
 import { ApiError, ERRORS, jsonError } from "@/lib/errors";
 import { capturedEventSchema, normalizeEvent } from "@/lib/eventSchema";
@@ -9,12 +9,12 @@ import { persistEvent } from "@/lib/persistEvent";
 import { checkRateLimit } from "@/lib/rateLimit";
 
 export async function OPTIONS(request: Request): Promise<NextResponse> {
-  const cors = resolveCorsHeaders(request.headers.get("origin"));
+  const cors = resolveEventsCorsHeaders(request.headers.get("origin"));
   return new NextResponse(null, { status: 204, headers: cors });
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const cors = resolveCorsHeaders(request.headers.get("origin"));
+  const cors = resolveEventsCorsHeaders(request.headers.get("origin"));
 
   try {
     const rawKey = extractBearerToken(request.headers.get("authorization"));
@@ -87,17 +87,17 @@ export async function POST(request: Request): Promise<NextResponse> {
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveEventsCorsHeaders(request.headers.get("origin")));
 }
 
 export async function PUT(request: Request): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveEventsCorsHeaders(request.headers.get("origin")));
 }
 
 export async function DELETE(request: Request): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveEventsCorsHeaders(request.headers.get("origin")));
 }
 
 export async function PATCH(request: Request): Promise<NextResponse> {
-  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveCorsHeaders(request.headers.get("origin")));
+  return jsonError(ERRORS.METHOD_NOT_ALLOWED(), resolveEventsCorsHeaders(request.headers.get("origin")));
 }
