@@ -20,13 +20,14 @@ describe("init", () => {
     warnSpy.mockRestore();
   });
 
-  it("initializes with a valid config", async () => {
+  it("initializes with a valid config, defaulting endpoint to the hosted collector", async () => {
     const { init, getState } = await freshInit();
+    const { DEFAULT_ENDPOINT } = await import("./core/config");
     init({ apiKey: "project_xxx" });
     const state = getState();
     expect(state.initialized).toBe(true);
     expect(state.instanceId).toEqual(expect.any(String));
-    expect(state.config).toEqual({ apiKey: "project_xxx", endpoint: undefined, enabled: true });
+    expect(state.config).toEqual({ apiKey: "project_xxx", endpoint: DEFAULT_ENDPOINT, enabled: true });
   });
 
   it("does not initialize and does not throw on invalid config", async () => {

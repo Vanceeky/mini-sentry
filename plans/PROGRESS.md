@@ -1604,3 +1604,49 @@ password reset, response-body capture with real redaction, `web/` test
 coverage, actually deploying `backend/` somewhere real so the SDK's
 `endpoint` has somewhere non-`localhost` to point at, etc.) stays new scope
 to confirm before starting, same as always.
+
+## SDK: default endpoint now that a real backend exists (`@vanceeq/canary@0.2.0`)
+
+**Status:** Complete (not a phase — see `plans/DECISIONS.md`'s
+Post-Phase-14 SDK section for the reasoning)
+
+`canary-backend` (the standalone Phase-14 backend split, see above) is now
+actually deployed at `https://canary-backend-pi.vercel.app`, closing the gap
+this file's own "Next" section flagged. The user asked whether the SDK
+could stop requiring every consumer to type an `endpoint` now that a real
+one exists.
+
+**What was built:** `sdk/src/core/config.ts` gained `DEFAULT_ENDPOINT`
+(the hosted backend's `/api/v1/events`); `resolveConfig()` falls back to it
+when `config.endpoint` is omitted; `ResolvedConfig.endpoint` is now always a
+`string` (no longer optional), so `index.ts`'s now-dead
+`if (resolved.endpoint)` guard was removed. `sdk/README.md` and
+`sdk/DEPLOYMENT.md` updated — every example now shows `apiKey` alone as the
+minimal working config, with `endpoint` documented as an override for
+self-hosting. Version bumped `0.1.2` → `0.2.0` (minor, not patch — this
+changes default behavior, not just fixing a bug).
+
+**Tests performed:** `npm run typecheck -w sdk` clean; `npm run test -w sdk`
+— 69 passed (2 updated: `index.test.ts`'s default-config assertion now
+expects `DEFAULT_ENDPOINT` instead of `undefined`; `config.test.ts` gained a
+dedicated default-endpoint test); `npm run build -w sdk` — confirmed via
+`grep` that the built `dist/canary.min.js` actually contains the literal
+`canary-backend-pi.vercel.app/api/v1/events` string; `find sdk/dist -iname
+'*.test.*'` empty.
+
+**Known limitation, recorded not fixed:** the old "omit `endpoint`, capture
+but never send" no-op-transport mode (documented since Phase 1) no longer
+exists as a distinct state — `enabled: false` is the closest replacement,
+but it disables capture entirely, not just transport. No one has asked for
+that finer-grained case since this change; revisit only if asked.
+
+**Publishing status:** code changes, version bump, build, and tests are
+done and committed; `npm publish -w sdk --access public` itself was left to
+the user to run (needs their own `npm login` — this session's npm CLI
+session isn't authenticated, and this repo has hit the exact "cached-401-
+reads-as-404" gotcha before, see the section above — safer for the account
+owner to run this step directly than to guess at credentials).
+
+**Next:** confirm the publish succeeded (`npm view @vanceeq/canary version`
+should return `0.2.0`) and record the outcome here, following this repo's
+usual pattern.

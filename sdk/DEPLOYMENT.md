@@ -25,7 +25,7 @@ cp sdk/dist/canary.min.js  /path/to/your-site/assets/js/
 
 ```html
 <script src="/assets/js/canary.min.js"></script>
-<script>Canary.init({ apiKey: "...", endpoint: "..." });</script>
+<script>Canary.init({ apiKey: "..." });</script>
 ```
 
 Works today, zero setup. Downside: manual — every SDK change means

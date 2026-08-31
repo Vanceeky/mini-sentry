@@ -38,9 +38,7 @@ export function init(config: CanaryConfig): void {
       recordEvent(event);
       info(`captured ${event.type} event`, event);
       showCaptureNotification(event);
-      if (resolved.endpoint) {
-        sendEvent(resolved.endpoint, resolved.apiKey, event);
-      }
+      sendEvent(resolved.endpoint, resolved.apiKey, event);
     };
     installGlobalErrorListeners(onCapture);
     installFetchInterceptor(onCapture);

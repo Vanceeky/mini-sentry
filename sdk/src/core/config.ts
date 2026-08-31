@@ -1,3 +1,11 @@
+/**
+ * The hosted Canary backend's event-ingestion endpoint — the default target
+ * for every SDK consumer who doesn't self-host. Overridable via
+ * `config.endpoint` for anyone running their own backend (e.g. from the
+ * mini-sentry/canary-backend source). See DECISIONS.md.
+ */
+export const DEFAULT_ENDPOINT = "https://canary-backend-pi.vercel.app/api/v1/events";
+
 export interface CanaryConfig {
   apiKey: string;
   endpoint?: string;
@@ -6,7 +14,7 @@ export interface CanaryConfig {
 
 export interface ResolvedConfig {
   apiKey: string;
-  endpoint?: string;
+  endpoint: string;
   enabled: boolean;
 }
 
@@ -36,7 +44,7 @@ export function validateConfig(config: unknown): string[] {
 export function resolveConfig(config: CanaryConfig): ResolvedConfig {
   return {
     apiKey: config.apiKey,
-    endpoint: config.endpoint,
+    endpoint: config.endpoint ?? DEFAULT_ENDPOINT,
     enabled: config.enabled ?? true,
   };
 }

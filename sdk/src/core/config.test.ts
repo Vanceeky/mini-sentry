@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveConfig, validateConfig } from "./config";
+import { DEFAULT_ENDPOINT, resolveConfig, validateConfig } from "./config";
 
 describe("validateConfig", () => {
   it("accepts a minimal valid config", () => {
@@ -38,6 +38,10 @@ describe("validateConfig", () => {
 describe("resolveConfig", () => {
   it("defaults enabled to true", () => {
     expect(resolveConfig({ apiKey: "k" }).enabled).toBe(true);
+  });
+
+  it("defaults endpoint to the hosted collector when omitted", () => {
+    expect(resolveConfig({ apiKey: "k" }).endpoint).toBe(DEFAULT_ENDPOINT);
   });
 
   it("preserves an explicit enabled/endpoint", () => {

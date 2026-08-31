@@ -14,7 +14,17 @@ import { init, getCapturedEvents } from "@vanceeq/canary";
 
 init({
   apiKey: "your_project_key",
-  endpoint: "https://your-collector.example.com/events", // optional
+});
+```
+
+Events are sent to the hosted Canary backend by default — no `endpoint`
+needed. Pass one only if you're self-hosting the backend yourself (e.g. from
+[`canary-backend`](https://github.com/Vanceeky/canary-backend)):
+
+```ts
+init({
+  apiKey: "your_project_key",
+  endpoint: "https://your-own-backend.example.com/api/v1/events",
 });
 ```
 
@@ -29,7 +39,6 @@ global) that jsDelivr and unpkg mirror automatically, no self-hosting needed:
 <script>
   Canary.init({
     apiKey: "your_project_key",
-    endpoint: "https://your-collector.example.com/events",
   });
 </script>
 ```
@@ -45,7 +54,7 @@ cp sdk/dist/canary.min.js /path/to/your-site/assets/js/
 ```
 ```html
 <script src="/assets/js/canary.min.js"></script>
-<script>Canary.init({ apiKey: "your_project_key", endpoint: "..." });</script>
+<script>Canary.init({ apiKey: "your_project_key", endpoint: "https://your-own-backend.example.com/api/v1/events" });</script>
 ```
 
 `init()` never throws, even with an invalid config — a malformed call is logged as a
@@ -53,11 +62,11 @@ cp sdk/dist/canary.min.js /path/to/your-site/assets/js/
 
 ## Config
 
-| Option     | Type    | Default    | Notes                                                          |
-| ---------- | ------- | ---------- | ---------------------------------------------------------------- |
-| `apiKey`   | string  | _required_ | must be a non-empty string                                       |
-| `endpoint` | string  | none       | if omitted, events are still captured/buffered, just never sent |
-| `enabled`  | boolean | `true`     | `false` puts the SDK in no-op mode                               |
+| Option     | Type    | Default                                             | Notes                                                          |
+| ---------- | ------- | ---------------------------------------------------- | ---------------------------------------------------------------- |
+| `apiKey`   | string  | _required_                                           | must be a non-empty string                                       |
+| `endpoint` | string  | the hosted Canary backend's `/api/v1/events`         | override only if self-hosting your own backend                  |
+| `enabled`  | boolean | `true`                                               | `false` puts the SDK in no-op mode                               |
 
 ## What it captures
 
@@ -84,8 +93,9 @@ cp sdk/dist/canary.min.js /path/to/your-site/assets/js/
 1. Buffered in memory (last 50), retrievable via `getCapturedEvents()`.
 2. A small, auto-dismissing notification is shown (rendered into an isolated Shadow
    DOM host, so its styles can never leak into/out of your page).
-3. If `endpoint` is configured, it's POSTed there as JSON, fire-and-forget — a
-   down/misconfigured endpoint only logs a console warning, it never throws.
+3. POSTed to `endpoint` (the hosted Canary backend by default, or your own if
+   overridden) as JSON, fire-and-forget — a down/misconfigured endpoint only
+   logs a console warning, it never throws.
 
 ## Privacy
 
@@ -118,5 +128,4 @@ cp sdk/dist/canary.min.js /path/to/your-site/assets/js/
 
 See `plans/PROGRESS.md` and `plans/DECISIONS.md` at the repo root for the full,
 phase-by-phase detail. In short: no XHR interception, no transport retry/batching/
-queueing, no backend to actually receive events yet (that's explicitly out of scope
-until a later phase), and no config option to disable just the notification UI.
+queueing, and no config option to disable just the notification UI.

@@ -965,6 +965,47 @@ since they're correctness fixes for that specific target, not new features:
   the original strict allowlist, since those are for the operator's own
   dashboard, not arbitrary third parties.
 
+## Post-Phase-14 — SDK: default endpoint, bump to 0.2.0
+
+New scope, not a phase: with `canary-backend` now actually deployed
+(`https://canary-backend-pi.vercel.app`), the user asked whether the SDK
+could stop requiring every consumer to type an `endpoint`. Confirmed and
+implemented — this is a deliberate shift, not a bugfix, so recorded as a
+decision:
+
+- **`sdk/src/core/config.ts` gained a `DEFAULT_ENDPOINT` constant**
+  (`https://canary-backend-pi.vercel.app/api/v1/events`), and
+  `resolveConfig()` now falls back to it via `config.endpoint ?? DEFAULT_ENDPOINT`
+  instead of leaving `endpoint` `undefined`. `ResolvedConfig.endpoint`'s type
+  changed from `string | undefined` to `string` — it's now always present,
+  so `index.ts`'s `if (resolved.endpoint) { sendEvent(...) }` guard was
+  removed as dead code (per "don't validate what can't happen").
+  `config.endpoint` (the *input* type) stays optional — an SDK consumer
+  self-hosting their own backend (e.g. from this same `canary-backend`
+  source) still overrides it exactly the same way as before.
+- **This is a genuine behavior change to public SDK semantics, not a patch**:
+  previously, omitting `endpoint` meant "capture events, never send them"
+  (a documented, intentional no-op-transport mode from Phase 1 onward). That
+  capture-only mode no longer exists as a distinct state — omitting
+  `endpoint` now always means "send to the hosted backend." Anyone who was
+  relying on the old silent-no-send default (e.g. to buffer events locally
+  without a network call) would need `enabled: false` instead (which now
+  disables capture entirely, a coarser tool, not a like-for-like
+  replacement) — flagged here since no one asked for that finer-grained
+  case yet, not fixed unilaterally.
+  Bumped `sdk/package.json` from `0.1.2` to `0.2.0` (minor, not patch) to
+  reflect that this is a default-behavior change, following semver
+  conventions this project hasn't needed to distinguish before now (both
+  prior bumps, `0.1.1`/`0.1.2`, were pure bugfixes).
+- **The hosted endpoint URL is a literal string constant in the SDK
+  source**, not an env var or build-time config — the SDK ships as a
+  pre-built static bundle (npm package + CDN-mirrored IIFE) with no build
+  step for most consumers (the whole point of the script-tag install path),
+  so there's no place to inject an env var at their install time. Changing
+  the hosted backend's URL in the future means editing this one constant
+  and republishing a new SDK version — an accepted, documented trade-off,
+  not an oversight.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
