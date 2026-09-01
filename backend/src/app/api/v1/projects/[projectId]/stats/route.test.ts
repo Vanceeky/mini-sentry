@@ -15,7 +15,7 @@ async function freshRoute(opts: {
       : vi.fn().mockResolvedValue(user),
   }));
   vi.doMock("@/lib/access", () => ({
-    resolveProjectAccess: opts.resolveProjectAccess ?? vi.fn().mockResolvedValue({ id: "proj_1", teamId: null }),
+    resolveProjectAccess: opts.resolveProjectAccess ?? vi.fn().mockResolvedValue({ id: "proj_1", ownerId: "user_1" }),
   }));
   vi.doMock("@/lib/errorQuery", () => ({
     getProjectStats: opts.getProjectStats ?? vi.fn().mockResolvedValue({ errors: 0, events: 0, activeGroups: 0, lastErrorAt: null }),

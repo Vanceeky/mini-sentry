@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
-import { findTeamMembership } from "@/lib/access";
 import { requireSessionUser } from "@/lib/authGuard";
 import { MAX_INVITATION_PAYLOAD_BYTES } from "@/lib/constants";
 import { resolveCorsHeaders } from "@/lib/cors";
 import { getEmailService } from "@/lib/email";
 import { ApiError, ERRORS, jsonError } from "@/lib/errors";
-import { createInvitation, listPendingInvitationsForTeam } from "@/lib/invitation";
+import { createInvitation, listPendingInvitationsForProject } from "@/lib/invitation";
 import { createInvitationSchema } from "@/lib/invitationSchema";
-import { findAccessibleTeam } from "@/lib/team";
+import { findOwnedProject } from "@/lib/project";
 
 interface RouteContext {
-  params: Promise<{ teamId: string }>;
+  params: Promise<{ projectId: string }>;
 }
 
 const ALLOWED_METHODS = "GET, POST, OPTIONS";
@@ -20,35 +19,31 @@ export async function OPTIONS(request: Request): Promise<NextResponse> {
   return new NextResponse(null, { status: 204, headers: cors });
 }
 
-/** LEAD-only. */
+/** Owner-only. */
 export async function GET(request: Request, { params }: RouteContext): Promise<NextResponse> {
   const cors = resolveCorsHeaders(request.headers.get("origin"), ALLOWED_METHODS);
 
   try {
     const user = await requireSessionUser(request);
-    const { teamId } = await params;
+    const { projectId } = await params;
 
-    if (!(await findAccessibleTeam(user.id, teamId))) {
-      return jsonError(ERRORS.TEAM_NOT_FOUND(), cors);
-    }
-    const membership = await findTeamMembership(teamId, user.id);
-    if (membership?.role !== "LEAD") {
-      return jsonError(ERRORS.INSUFFICIENT_ROLE(), cors);
+    if (!(await findOwnedProject(user.id, projectId))) {
+      return jsonError(ERRORS.PROJECT_NOT_FOUND(), cors);
     }
 
-    const invitations = await listPendingInvitationsForTeam(teamId);
+    const invitations = await listPendingInvitationsForProject(projectId);
     return NextResponse.json({ success: true, invitations }, { status: 200, headers: cors });
   } catch (error) {
     if (error instanceof ApiError) {
       return jsonError(error, cors);
     }
-    console.error("unexpected error handling GET /api/v1/teams/:teamId/invitations", error);
+    console.error("unexpected error handling GET /api/v1/projects/:projectId/invitations", error);
     return jsonError(ERRORS.INTERNAL_ERROR(), cors);
   }
 }
 
 /**
- * LEAD-only. Returns the raw invite token once (mirrors project API-key
+ * Owner-only. Returns the raw invite token once (mirrors project API-key
  * issuance). Also best-effort sends an invite email (lib/email.ts) — a
  * delivery failure never blocks invitation creation, since the token in the
  * response is always a valid fallback.
@@ -58,10 +53,10 @@ export async function POST(request: Request, { params }: RouteContext): Promise<
 
   try {
     const user = await requireSessionUser(request);
-    const { teamId } = await params;
+    const { projectId } = await params;
 
-    if (!(await findAccessibleTeam(user.id, teamId))) {
-      return jsonError(ERRORS.TEAM_NOT_FOUND(), cors);
+    if (!(await findOwnedProject(user.id, projectId))) {
+      return jsonError(ERRORS.PROJECT_NOT_FOUND(), cors);
     }
 
     const rawBody = await request.text();
@@ -83,9 +78,9 @@ export async function POST(request: Request, { params }: RouteContext): Promise<
       return jsonError(ERRORS.validationError(message), cors);
     }
 
-    const outcome = await createInvitation(teamId, user.id, result.data.email, result.data.role);
+    const outcome = await createInvitation(projectId, user.id, result.data.email);
     if (outcome.status === "forbidden") {
-      return jsonError(ERRORS.INSUFFICIENT_ROLE(), cors);
+      return jsonError(ERRORS.PROJECT_NOT_FOUND(), cors);
     }
     if (outcome.status === "already_pending") {
       return jsonError(ERRORS.INVITATION_ALREADY_PENDING(), cors);
@@ -93,9 +88,8 @@ export async function POST(request: Request, { params }: RouteContext): Promise<
 
     try {
       await getEmailService().sendInvitationEmail(result.data.email, {
-        teamName: outcome.teamName,
+        projectName: outcome.projectName,
         inviterName: outcome.inviterName,
-        invitedRole: result.data.role,
         token: outcome.token,
       });
     } catch (emailError) {
@@ -110,7 +104,7 @@ export async function POST(request: Request, { params }: RouteContext): Promise<
     if (error instanceof ApiError) {
       return jsonError(error, cors);
     }
-    console.error("unexpected error handling POST /api/v1/teams/:teamId/invitations", error);
+    console.error("unexpected error handling POST /api/v1/projects/:projectId/invitations", error);
     return jsonError(ERRORS.INTERNAL_ERROR(), cors);
   }
 }

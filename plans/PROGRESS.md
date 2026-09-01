@@ -1650,3 +1650,120 @@ owner to run this step directly than to guess at credentials).
 **Next:** confirm the publish succeeded (`npm view @vanceeq/canary version`
 should return `0.2.0`) and record the outcome here, following this repo's
 usual pattern.
+
+## Phase 15 — Backend: Direct Project Membership, Invite-to-Register, Error Status
+
+**Status:** Implemented and verified locally; production migration not yet applied (gated on confirming no existing production `invitations` rows — see below).
+
+New scope, not pre-planned — the user asked to remove the Team entity
+entirely, replacing Phase 14's team-mediated project access with direct
+per-project membership (no team-creation step, the project creator is the
+sole "lead"), add email-based invitations that let a brand-new person join
+by registering with the invite token, and add an error-group `status`
+(`PENDING`/`IN_PROGRESS`/`DONE`) settable by any project member. Confirmed
+with the user via explicit clarifying questions before implementation; see
+`plans/DECISIONS.md`'s Phase 15 section for the reasoning behind each
+decision.
+
+**What was built:**
+- **Schema** (`backend/prisma/schema.prisma`): removed `Team`, `TeamMember`,
+  `TeamRole` entirely; removed `Project.teamId`, `Invitation.teamId`/
+  `invitedRole`, `User.teamMemberships`/`ledTeams`. Added `ErrorGroupStatus`
+  enum, `ErrorGroup.status` (`@default(PENDING)`, indexed), `ProjectMember`
+  (flat, no role field — owner gets no row, see `plans/DECISIONS.md`),
+  `Invitation.projectId` (relation to `Project`, `onDelete: Cascade`).
+  Migration `20260901034539_remove_teams_add_project_members_and_status`
+  generated, hand-reviewed, applied to local Postgres only so far.
+- **`lib/access.ts`** (rewritten): `resolveProjectAccess()` now
+  owner-OR-`ProjectMember` (no team indirection), select gains `ownerId`;
+  `findTeamMembership` → `findProjectMembership(projectId, userId)`.
+- **`lib/projectMembers.ts`** (new): `listProjectMembers` (synthesizes an
+  `isOwner: true` row for the owner on top of real `ProjectMember` rows),
+  `addProjectMember`, `removeProjectMember` (owner-removes-anyone /
+  self-leave / owner-can't-be-removed, IDOR-safe `deleteMany` scoping).
+- **`lib/invitation.ts`** (rewritten): project-scoped throughout, dropped
+  `invitedRole`; `createInvitation`'s permission check now a direct
+  `findOwnedProject` call; new `previewInvitation(rawToken)` (public-safe,
+  no auth) backing the new preview endpoint.
+- **`lib/assignment.ts`** (rewritten): `assignErrorGroup` re-expressed as
+  `isOwner = project.ownerId === actingUser.id` (no `TeamRole`); new
+  `updateErrorGroupStatus()`, open to any accessible member/owner (a
+  deliberately more permissive rule than assignment — confirmed explicitly).
+- **`lib/admin.ts`** (rewritten): `listAllTeams` → `listAllProjects`
+  (owner + member-count per project, successor superadmin oversight view).
+- **`lib/project.ts`**: new `listAccessibleProjects()` (owned + member
+  projects, each tagged `isOwner`) — `GET /projects` now uses this instead
+  of owner-only listing, so a newly-invited member can discover which
+  project they joined.
+- **`lib/email.ts`** (rewritten): added `SmtpEmailService` (nodemailer) —
+  `getEmailService()` picks it only when all five `SMTP_HOST`/`SMTP_PORT`/
+  `SMTP_USER`/`SMTP_PASS`/`SMTP_FROM` are set, else falls back to the
+  existing `ConsoleEmailService` placeholder.
+- **Routes**: deleted the entire `teams/` tree, `projects/:id/team`,
+  `admin/teams`. Added `projects/:id/members` (GET),
+  `projects/:id/members/:userId` (DELETE), `projects/:id/invitations`
+  (GET/POST), `projects/:id/invitations/:id` (DELETE),
+  `invitations/preview` (GET, public), `admin/projects` (GET). Changed
+  `auth/register` (optional `invitationToken`, best-effort join reported in
+  an `invitation` response sub-field, never blocks account creation) and
+  the errors `PATCH` endpoint (combined `assigneeId`/`status` body, at least
+  one required).
+- **Error codes**: removed `TEAM_NOT_FOUND`/`NOT_A_TEAM_MEMBER`/
+  `PROJECT_NOT_ON_TEAM`/`LAST_TEAM_LEAD`; added `NOT_A_PROJECT_MEMBER` (400),
+  `CANNOT_REMOVE_OWNER` (409).
+- **`docs/API.md`**: removed the Teams section and the
+  `PUT`/`DELETE .../team` endpoints; added a Project Members section;
+  re-scoped Invitations to projects (documenting the new public preview
+  endpoint and the extended register behavior); `admin/teams` →
+  `admin/projects`; error-code table, `PATCH` errors docs, `GET /projects`
+  docs, and Known Limitations all updated for the new model.
+- **`backend/package.json`**: added `nodemailer` + `@types/nodemailer`.
+
+**Tests performed:**
+- `npm run typecheck -w backend` — clean.
+- `npm run test -w backend` (`DATABASE_URL` set): 395 passed, including a
+  new `projects/membership.flow.integration.test.ts` driving the full real-DB
+  flow end to end: owner creates a project, invites a not-yet-existing
+  person by email, that person previews the invite with **no auth**, then
+  registers **with the invite token** and is auto-joined in one step; a
+  third, already-registered person joins via the standard authenticated
+  accept endpoint; the invited member reads errors, self-assigns a real
+  ingested event's error group, sets its status to `IN_PROGRESS`; the owner
+  reassigns it to the third member; the original member is blocked
+  (`403 INSUFFICIENT_ROLE`) from reassigning it further; the owner removes
+  the member, who then loses access (`404`) — all against real Postgres.
+  Rewrote `access`/`invitation`/`assignment`/`admin` lib tests, added
+  `projectMembers` lib tests, rewrote/added route tests for every
+  new/changed route, extended `register/route.test.ts` for the
+  invitation-token paths.
+- `npm run build -w backend` — all routes compiled successfully.
+- `find backend/.next -iname '*.test.*'` — empty.
+- Full-repo grep for stray `TeamRole`/`teamId`/`TeamMember`/
+  `findTeamMembership`/`PROJECT_NOT_ON_TEAM`/`LAST_TEAM_LEAD`/
+  `NOT_A_TEAM_MEMBER`/`invitedRole` references — clean except intentional
+  historical mentions in `plans/PROGRESS.md`/`plans/DECISIONS.md` (Phase 14's
+  own entries, left as history) and contrastive phrasing in `docs/API.md`.
+
+**Known limitations:** see `docs/API.md`'s Known Limitations section (Phase
+15 updates) — no cascading unassign on member removal, app-level (not DB)
+invite-uniqueness, invitation email delivery requires SMTP configuration
+(Gmail App Password or similar) to actually send (falls back to logging
+otherwise — the response token is always the reliable path), superadmin
+role snapshotted into the session token until next login, no API to
+grant/revoke SUPERADMIN.
+
+**Production migration status:** the generated migration adds
+`invitations.projectId` as `NOT NULL` with no default, which fails outright
+against production Neon if any `invitations` rows already exist there. Per
+`plans/DECISIONS.md`'s Phase 15 entry, this must be checked (and the
+migration approach revised if rows exist) before `prisma migrate deploy` is
+ever run against production — **not done yet as of this writing.**
+
+**Commit:** not yet committed — code changes are complete and verified
+locally; commit + push (monorepo, then mirror to `canary-backend`) is the
+next step, followed by the gated production migration.
+
+**Next phase:** none queued. Further work (a real transactional-email
+provider beyond SMTP, per-project CORS, password reset, etc.) is tracked in
+`plans/DECISIONS.md`'s Deferred section, to be picked up only when
+explicitly instructed.

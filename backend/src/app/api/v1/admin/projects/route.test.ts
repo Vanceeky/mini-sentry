@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-async function freshRoute(opts: { forbidden?: boolean; listAllTeams?: ReturnType<typeof vi.fn> } = {}) {
+async function freshRoute(opts: { forbidden?: boolean; listAllProjects?: ReturnType<typeof vi.fn> } = {}) {
   vi.resetModules();
   const { ERRORS } = await import("@/lib/errors");
   vi.doMock("@/lib/adminGuard", () => ({
@@ -9,12 +9,12 @@ async function freshRoute(opts: { forbidden?: boolean; listAllTeams?: ReturnType
       : vi.fn().mockResolvedValue({ id: "user_1", role: "SUPERADMIN" }),
   }));
   vi.doMock("@/lib/admin", () => ({
-    listAllTeams: opts.listAllTeams ?? vi.fn().mockResolvedValue({ data: [], pagination: { page: 1, limit: 20, total: 0 } }),
+    listAllProjects: opts.listAllProjects ?? vi.fn().mockResolvedValue({ data: [], pagination: { page: 1, limit: 20, total: 0 } }),
   }));
   return import("./route");
 }
 
-describe("GET /api/v1/admin/teams", () => {
+describe("GET /api/v1/admin/projects", () => {
   beforeEach(() => vi.spyOn(console, "error").mockImplementation(() => {}));
   afterEach(() => {
     vi.restoreAllMocks();
@@ -28,12 +28,12 @@ describe("GET /api/v1/admin/teams", () => {
     expect(response.status).toBe(403);
   });
 
-  it("returns 200 with the paginated team list ('my clients') for a superadmin", async () => {
+  it("returns 200 with the paginated project list ('my clients') for a superadmin", async () => {
     const payload = {
-      data: [{ id: "team_1", name: "Rocket", memberCount: 3, projectCount: 2 }],
+      data: [{ id: "proj_1", name: "Rocket", owner: { id: "user_1", name: "Ada", email: "ada@example.com" }, memberCount: 3 }],
       pagination: { page: 1, limit: 20, total: 1 },
     };
-    const { GET } = await freshRoute({ listAllTeams: vi.fn().mockResolvedValue(payload) });
+    const { GET } = await freshRoute({ listAllProjects: vi.fn().mockResolvedValue(payload) });
 
     const response = await GET(new Request("http://localhost:3000/x"));
     expect(response.status).toBe(200);

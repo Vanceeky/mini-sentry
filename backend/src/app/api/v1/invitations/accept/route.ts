@@ -48,7 +48,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         return jsonError(ERRORS.INVITATION_EMAIL_MISMATCH(), cors);
     }
 
-    return NextResponse.json({ success: true, teamId: outcome.teamId }, { status: 200, headers: cors });
+    return NextResponse.json({ success: true, projectId: outcome.projectId }, { status: 200, headers: cors });
   } catch (error) {
     if (error instanceof ApiError) {
       return jsonError(error, cors);

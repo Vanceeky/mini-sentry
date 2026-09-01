@@ -9,7 +9,7 @@ async function freshRoute(opts: { authFails?: boolean; acceptInvitation?: Return
     requireSessionUser: opts.authFails ? vi.fn().mockRejectedValue(ERRORS.UNAUTHORIZED()) : vi.fn().mockResolvedValue(user),
   }));
   vi.doMock("@/lib/invitation", () => ({
-    acceptInvitation: opts.acceptInvitation ?? vi.fn().mockResolvedValue({ status: "accepted", teamId: "team_1" }),
+    acceptInvitation: opts.acceptInvitation ?? vi.fn().mockResolvedValue({ status: "accepted", projectId: "proj_1" }),
   }));
   return import("./route");
 }
@@ -50,10 +50,10 @@ describe("POST /api/v1/invitations/accept", () => {
     expect(response.status).toBe(403);
   });
 
-  it("returns 200 with the joined teamId on success", async () => {
+  it("returns 200 with the joined projectId on success", async () => {
     const { POST } = await freshRoute();
     const response = await POST(postRequest({ token: "tok" }));
     expect(response.status).toBe(200);
-    expect((await response.json()) as unknown).toEqual({ success: true, teamId: "team_1" });
+    expect((await response.json()) as unknown).toEqual({ success: true, projectId: "proj_1" });
   });
 });

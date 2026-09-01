@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-async function freshRoute(createMock: ReturnType<typeof vi.fn>) {
+async function freshRoute(createMock: ReturnType<typeof vi.fn>, opts: { acceptInvitation?: ReturnType<typeof vi.fn> } = {}) {
   vi.resetModules();
   vi.doMock("@/lib/db", () => ({ prisma: { user: { create: createMock } } }));
+  vi.doMock("@/lib/invitation", () => ({
+    acceptInvitation: opts.acceptInvitation ?? vi.fn().mockResolvedValue({ status: "accepted", projectId: "proj_1" }),
+  }));
   return import("./route");
 }
 
@@ -27,6 +30,7 @@ describe("POST /api/v1/auth/register", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock("@/lib/db");
+    vi.doUnmock("@/lib/invitation");
   });
 
   it("returns 201 with a safe user object (no password) on success", async () => {
@@ -100,6 +104,39 @@ describe("POST /api/v1/auth/register", () => {
 
     const response = await POST(postRequest(validBody, { origin: "http://localhost:5173" }));
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
+  });
+
+  it("with a valid invitationToken, joins the project and reports it in the response", async () => {
+    const createMock = vi.fn().mockResolvedValue({ id: "usr_1", name: "Ada", email: "ada@example.com", createdAt: new Date() });
+    const acceptInvitation = vi.fn().mockResolvedValue({ status: "accepted", projectId: "proj_1" });
+    const { POST } = await freshRoute(createMock, { acceptInvitation });
+
+    const response = await POST(postRequest({ ...validBody, invitationToken: "tok_123" }));
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { invitation: { status: string; projectId: string } };
+    expect(body.invitation).toEqual({ status: "accepted", projectId: "proj_1" });
+    expect(acceptInvitation).toHaveBeenCalledWith("tok_123", "usr_1", "ada@example.com");
+  });
+
+  it("still creates the account when invitationToken is invalid/expired — never blocks registration", async () => {
+    const createMock = vi.fn().mockResolvedValue({ id: "usr_1", name: "Ada", email: "ada@example.com", createdAt: new Date() });
+    const acceptInvitation = vi.fn().mockResolvedValue({ status: "expired" });
+    const { POST } = await freshRoute(createMock, { acceptInvitation });
+
+    const response = await POST(postRequest({ ...validBody, invitationToken: "stale-token" }));
+    expect(response.status).toBe(201);
+    expect(createMock).toHaveBeenCalledTimes(1);
+    const body = (await response.json()) as { invitation: { status: string } };
+    expect(body.invitation).toEqual({ status: "expired" });
+  });
+
+  it("omits the invitation key entirely when no invitationToken was sent", async () => {
+    const createMock = vi.fn().mockResolvedValue({ id: "usr_1", name: "Ada", email: "ada@example.com", createdAt: new Date() });
+    const { POST } = await freshRoute(createMock);
+
+    const response = await POST(postRequest(validBody));
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("invitation");
   });
 });
 

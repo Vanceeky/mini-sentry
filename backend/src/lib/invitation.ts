@@ -1,14 +1,14 @@
 import { randomBytes } from "node:crypto";
-import type { InvitationStatus, TeamRole } from "@prisma/client";
+import type { InvitationStatus } from "@prisma/client";
 import { INVITATION_TTL_MS } from "./constants";
 import { prisma } from "./db";
+import { findOwnedProject } from "./project";
 import { sha256Hex } from "./hash";
 
 export interface SafeInvitation {
   id: string;
-  teamId: string;
+  projectId: string;
   invitedEmail: string;
-  invitedRole: TeamRole;
   status: InvitationStatus;
   expiresAt: Date;
   createdAt: Date;
@@ -16,9 +16,8 @@ export interface SafeInvitation {
 
 const SAFE_INVITATION_SELECT = {
   id: true,
-  teamId: true,
+  projectId: true,
   invitedEmail: true,
-  invitedRole: true,
   status: true,
   expiresAt: true,
   createdAt: true,
@@ -36,36 +35,30 @@ function generateInvitationToken(): GeneratedInvitationToken {
 }
 
 export type CreateInvitationResult =
-  | { status: "created"; invitation: SafeInvitation; token: string; teamName: string; inviterName: string }
+  | { status: "created"; invitation: SafeInvitation; token: string; projectName: string; inviterName: string }
   | { status: "forbidden" }
   | { status: "already_pending" };
 
 /**
- * Assumes the caller's team membership was already verified by the route
- * (findAccessibleTeam) — this only enforces the LEAD requirement on top of
- * that. Rejects a duplicate pending invite for the same team+email
- * (app-level uniqueness, see schema.prisma's Invitation model comment).
- * Does not send the email itself — returns teamName/inviterName so the
- * route can do that as a best-effort side effect after this commits (same
- * "best-effort side effects caught at the call site" pattern as
- * notify.ts/notifyIfNeeded).
+ * Owner-only (verified here via findOwnedProject, reusing the same
+ * owner-scoped lookup every other project mutation uses). Rejects a
+ * duplicate pending invite for the same project+email (app-level
+ * uniqueness, see schema.prisma's Invitation model comment). Does not send
+ * the email itself — returns projectName/inviterName so the route can do
+ * that as a best-effort side effect after this commits.
  */
 export async function createInvitation(
-  teamId: string,
+  projectId: string,
   invitedByUserId: string,
   invitedEmail: string,
-  invitedRole: TeamRole,
 ): Promise<CreateInvitationResult> {
-  const membership = await prisma.teamMember.findUnique({
-    where: { teamId_userId: { teamId, userId: invitedByUserId } },
-    select: { role: true },
-  });
-  if (membership?.role !== "LEAD") {
+  const project = await findOwnedProject(invitedByUserId, projectId);
+  if (!project) {
     return { status: "forbidden" };
   }
 
   const existingPending = await prisma.invitation.findFirst({
-    where: { teamId, invitedEmail, status: "PENDING" },
+    where: { projectId, invitedEmail, status: "PENDING" },
     select: { id: true },
   });
   if (existingPending) {
@@ -73,28 +66,26 @@ export async function createInvitation(
   }
 
   const { rawToken, tokenHash } = generateInvitationToken();
-  const [invitation, team, inviter] = await Promise.all([
+  const [invitation, inviter] = await Promise.all([
     prisma.invitation.create({
       data: {
-        teamId,
+        projectId,
         invitedEmail,
-        invitedRole,
         tokenHash,
         invitedById: invitedByUserId,
         expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
       },
       select: SAFE_INVITATION_SELECT,
     }),
-    prisma.team.findUniqueOrThrow({ where: { id: teamId }, select: { name: true } }),
     prisma.user.findUniqueOrThrow({ where: { id: invitedByUserId }, select: { name: true } }),
   ]);
 
-  return { status: "created", invitation, token: rawToken, teamName: team.name, inviterName: inviter.name };
+  return { status: "created", invitation, token: rawToken, projectName: project.name, inviterName: inviter.name };
 }
 
-export async function listPendingInvitationsForTeam(teamId: string): Promise<SafeInvitation[]> {
+export async function listPendingInvitationsForProject(projectId: string): Promise<SafeInvitation[]> {
   return prisma.invitation.findMany({
-    where: { teamId, status: "PENDING" },
+    where: { projectId, status: "PENDING" },
     select: SAFE_INVITATION_SELECT,
     orderBy: { createdAt: "desc" },
   });
@@ -108,17 +99,43 @@ export async function listPendingInvitationsForUser(email: string): Promise<Safe
   });
 }
 
-/** LEAD-only (assumed pre-verified by the route). IDOR-safe count-checked updateMany, same pattern as lib/project.ts. */
-export async function revokeInvitation(teamId: string, invitationId: string): Promise<boolean> {
+/** Owner-only (assumed pre-verified by the route). IDOR-safe count-checked updateMany, same pattern as lib/project.ts. */
+export async function revokeInvitation(projectId: string, invitationId: string): Promise<boolean> {
   const { count } = await prisma.invitation.updateMany({
-    where: { id: invitationId, teamId, status: "PENDING" },
+    where: { id: invitationId, projectId, status: "PENDING" },
     data: { status: "REVOKED" },
   });
   return count > 0;
 }
 
+export type PreviewInvitationResult =
+  | { status: "ok"; projectName: string; invitedEmail: string }
+  | { status: "not_found" }
+  | { status: "expired" };
+
+/**
+ * PUBLIC, no-auth — used to preview an invite before an account exists, so
+ * a frontend can show "you're invited to X" ahead of registration. Same
+ * not-found/expired collapsing as acceptInvitation's lookup below. Never
+ * reveals anything beyond project name + invited email, both already
+ * implied by possessing the raw token.
+ */
+export async function previewInvitation(rawToken: string): Promise<PreviewInvitationResult> {
+  const invitation = await prisma.invitation.findUnique({
+    where: { tokenHash: sha256Hex(rawToken) },
+    select: { status: true, expiresAt: true, invitedEmail: true, project: { select: { name: true } } },
+  });
+  if (!invitation || invitation.status !== "PENDING") {
+    return { status: "not_found" };
+  }
+  if (invitation.expiresAt.getTime() <= Date.now()) {
+    return { status: "expired" };
+  }
+  return { status: "ok", projectName: invitation.project.name, invitedEmail: invitation.invitedEmail };
+}
+
 export type AcceptInvitationResult =
-  | { status: "accepted"; teamId: string }
+  | { status: "accepted"; projectId: string }
   | { status: "not_found" }
   | { status: "expired" }
   | { status: "email_mismatch" };
@@ -128,8 +145,11 @@ export type AcceptInvitationResult =
  * ("not_found") — reusing/guessing an old token can't reveal it was ever
  * valid. A lazily-discovered expiry ("expired") is distinguished only
  * because the token did exist; the response is still a 404 either way (see
- * lib/errors.ts). Joining an already-invited team is idempotent: it marks
- * the invitation ACCEPTED without creating a duplicate membership row.
+ * lib/errors.ts). Joining an already-invited project is idempotent: it
+ * marks the invitation ACCEPTED without creating a duplicate membership row.
+ * Called both from POST /invitations/accept (already-authenticated caller)
+ * and from POST /auth/register (a brand-new user, right after their
+ * account row commits) — identical logic either way.
  */
 export async function acceptInvitation(rawToken: string, userId: string, userEmail: string): Promise<AcceptInvitationResult> {
   const invitation = await prisma.invitation.findUnique({ where: { tokenHash: sha256Hex(rawToken) } });
@@ -147,14 +167,20 @@ export async function acceptInvitation(rawToken: string, userId: string, userEma
   }
 
   await prisma.$transaction(async (tx) => {
-    const existingMembership = await tx.teamMember.findUnique({
-      where: { teamId_userId: { teamId: invitation.teamId, userId } },
-    });
-    if (!existingMembership) {
-      await tx.teamMember.create({ data: { teamId: invitation.teamId, userId, role: invitation.invitedRole } });
+    const project = await tx.project.findUnique({ where: { id: invitation.projectId }, select: { ownerId: true } });
+    // The owner already has full access and deliberately never gets a
+    // ProjectMember row (see schema.prisma) — skip creating one even if
+    // they somehow end up redeeming their own project's invite token.
+    if (project?.ownerId !== userId) {
+      const existingMembership = await tx.projectMember.findUnique({
+        where: { projectId_userId: { projectId: invitation.projectId, userId } },
+      });
+      if (!existingMembership) {
+        await tx.projectMember.create({ data: { projectId: invitation.projectId, userId } });
+      }
     }
     await tx.invitation.update({ where: { id: invitation.id }, data: { status: "ACCEPTED" } });
   });
 
-  return { status: "accepted", teamId: invitation.teamId };
+  return { status: "accepted", projectId: invitation.projectId };
 }

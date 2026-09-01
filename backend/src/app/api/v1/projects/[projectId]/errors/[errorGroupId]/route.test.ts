@@ -2,12 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const user = { id: "user_1", name: "Ada", email: "ada@example.com" };
 
+const defaultSummary = { id: "grp_1", message: "boom", assigneeId: null, status: "PENDING" };
+
 async function freshRoute(
   opts: {
     authFails?: boolean;
     resolveProjectAccess?: ReturnType<typeof vi.fn>;
     getErrorGroupDetail?: ReturnType<typeof vi.fn>;
     assignErrorGroup?: ReturnType<typeof vi.fn>;
+    updateErrorGroupStatus?: ReturnType<typeof vi.fn>;
+    getErrorGroupSummary?: ReturnType<typeof vi.fn>;
     notifyUser?: ReturnType<typeof vi.fn>;
   } = {},
 ) {
@@ -19,7 +23,7 @@ async function freshRoute(
       : vi.fn().mockResolvedValue(user),
   }));
   vi.doMock("@/lib/access", () => ({
-    resolveProjectAccess: opts.resolveProjectAccess ?? vi.fn().mockResolvedValue({ id: "proj_1", teamId: null }),
+    resolveProjectAccess: opts.resolveProjectAccess ?? vi.fn().mockResolvedValue({ id: "proj_1", ownerId: "user_1" }),
   }));
   vi.doMock("@/lib/errorQuery", () => ({
     getErrorGroupDetail: opts.getErrorGroupDetail ?? vi.fn().mockResolvedValue(null),
@@ -28,6 +32,8 @@ async function freshRoute(
     assignErrorGroup:
       opts.assignErrorGroup ??
       vi.fn().mockResolvedValue({ status: "assigned", group: { id: "grp_1", message: "boom", assigneeId: "user_1" } }),
+    updateErrorGroupStatus: opts.updateErrorGroupStatus ?? vi.fn().mockResolvedValue("updated"),
+    getErrorGroupSummary: opts.getErrorGroupSummary ?? vi.fn().mockResolvedValue(defaultSummary),
   }));
   vi.doMock("@/lib/notification", () => ({
     getNotificationService: () => ({ notifyUser: opts.notifyUser ?? vi.fn().mockResolvedValue(undefined) }),
@@ -118,18 +124,11 @@ describe("PATCH /api/v1/projects/:projectId/errors/:errorGroupId", () => {
     expect((await PATCH(patchRequest({ assigneeId: "user_2" }), ctx())).status).toBe(401);
   });
 
-  it("returns 400 VALIDATION_ERROR when assigneeId is missing", async () => {
+  it("returns 400 VALIDATION_ERROR when the body is empty", async () => {
     const { PATCH } = await freshRoute();
     const response = await PATCH(patchRequest({}), ctx());
     expect(response.status).toBe(400);
     expect((await response.json()) as unknown).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
-  });
-
-  it("returns 409 PROJECT_NOT_ON_TEAM when the lib layer reports it", async () => {
-    const { PATCH } = await freshRoute({ assignErrorGroup: vi.fn().mockResolvedValue({ status: "project_not_on_team" }) });
-    const response = await PATCH(patchRequest({ assigneeId: "user_2" }), ctx());
-    expect(response.status).toBe(409);
-    expect((await response.json()) as unknown).toMatchObject({ error: { code: "PROJECT_NOT_ON_TEAM" } });
   });
 
   it("returns 403 INSUFFICIENT_ROLE when a member tries to assign someone else", async () => {
@@ -139,16 +138,17 @@ describe("PATCH /api/v1/projects/:projectId/errors/:errorGroupId", () => {
     expect((await response.json()) as unknown).toMatchObject({ error: { code: "INSUFFICIENT_ROLE" } });
   });
 
-  it("returns 400 NOT_A_TEAM_MEMBER when the target isn't on the team", async () => {
-    const { PATCH } = await freshRoute({ assignErrorGroup: vi.fn().mockResolvedValue({ status: "not_a_team_member" }) });
+  it("returns 400 NOT_A_PROJECT_MEMBER when the target isn't a project member", async () => {
+    const { PATCH } = await freshRoute({ assignErrorGroup: vi.fn().mockResolvedValue({ status: "not_a_project_member" }) });
     const response = await PATCH(patchRequest({ assigneeId: "user_2" }), ctx());
     expect(response.status).toBe(400);
-    expect((await response.json()) as unknown).toMatchObject({ error: { code: "NOT_A_TEAM_MEMBER" } });
+    expect((await response.json()) as unknown).toMatchObject({ error: { code: "NOT_A_PROJECT_MEMBER" } });
   });
 
-  it("returns 200 and notifies the assignee on success", async () => {
+  it("returns 200 and notifies the assignee on a successful assignment", async () => {
     const notifyUser = vi.fn().mockResolvedValue(undefined);
-    const { PATCH } = await freshRoute({ notifyUser });
+    const getErrorGroupSummary = vi.fn().mockResolvedValue({ ...defaultSummary, assigneeId: "user_1" });
+    const { PATCH } = await freshRoute({ notifyUser, getErrorGroupSummary });
 
     const response = await PATCH(patchRequest({ assigneeId: "user_1" }), ctx());
     expect(response.status).toBe(200);
@@ -166,6 +166,38 @@ describe("PATCH /api/v1/projects/:projectId/errors/:errorGroupId", () => {
     const response = await PATCH(patchRequest({ assigneeId: null }), ctx());
     expect(response.status).toBe(200);
     expect(notifyUser).not.toHaveBeenCalled();
+  });
+
+  it("sets status without touching assignment, open to any member", async () => {
+    const assignErrorGroup = vi.fn();
+    const updateErrorGroupStatus = vi.fn().mockResolvedValue("updated");
+    const getErrorGroupSummary = vi.fn().mockResolvedValue({ ...defaultSummary, status: "IN_PROGRESS" });
+    const { PATCH } = await freshRoute({ assignErrorGroup, updateErrorGroupStatus, getErrorGroupSummary });
+
+    const response = await PATCH(patchRequest({ status: "IN_PROGRESS" }), ctx());
+    expect(response.status).toBe(200);
+    expect(assignErrorGroup).not.toHaveBeenCalled();
+    expect(updateErrorGroupStatus).toHaveBeenCalledWith(user, "proj_1", "grp_1", "IN_PROGRESS");
+    const body = (await response.json()) as { group: { status: string } };
+    expect(body.group.status).toBe("IN_PROGRESS");
+  });
+
+  it("returns 404 ERROR_GROUP_NOT_FOUND when updateErrorGroupStatus reports it", async () => {
+    const { PATCH } = await freshRoute({ updateErrorGroupStatus: vi.fn().mockResolvedValue("group_not_found") });
+    const response = await PATCH(patchRequest({ status: "DONE" }), ctx());
+    expect(response.status).toBe(404);
+    expect((await response.json()) as unknown).toMatchObject({ error: { code: "ERROR_GROUP_NOT_FOUND" } });
+  });
+
+  it("applies both assigneeId and status in one request", async () => {
+    const assignErrorGroup = vi.fn().mockResolvedValue({ status: "assigned", group: { id: "grp_1", message: "boom", assigneeId: "user_1" } });
+    const updateErrorGroupStatus = vi.fn().mockResolvedValue("updated");
+    const { PATCH } = await freshRoute({ assignErrorGroup, updateErrorGroupStatus });
+
+    const response = await PATCH(patchRequest({ assigneeId: "user_1", status: "DONE" }), ctx());
+    expect(response.status).toBe(200);
+    expect(assignErrorGroup).toHaveBeenCalled();
+    expect(updateErrorGroupStatus).toHaveBeenCalled();
   });
 });
 

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-async function freshAdmin(opts: { user?: Record<string, ReturnType<typeof vi.fn>>; team?: Record<string, ReturnType<typeof vi.fn>> }) {
+async function freshAdmin(opts: { user?: Record<string, ReturnType<typeof vi.fn>>; project?: Record<string, ReturnType<typeof vi.fn>> }) {
   vi.resetModules();
-  vi.doMock("./db", () => ({ prisma: { user: opts.user ?? {}, team: opts.team ?? {} } }));
+  vi.doMock("./db", () => ({ prisma: { user: opts.user ?? {}, project: opts.project ?? {} } }));
   return import("./admin");
 }
 
@@ -21,24 +21,24 @@ describe("listAllUsers", () => {
   });
 });
 
-describe("listAllTeams", () => {
+describe("listAllProjects", () => {
   afterEach(() => vi.doUnmock("./db"));
 
-  it("flattens _count into memberCount/projectCount", async () => {
+  it("flattens _count into memberCount", async () => {
     const findMany = vi.fn().mockResolvedValue([
       {
-        id: "team_1",
+        id: "proj_1",
         name: "Rocket",
         createdAt: new Date(),
-        createdBy: { id: "user_1", name: "Ada", email: "ada@x.com" },
-        _count: { members: 3, projects: 2 },
+        owner: { id: "user_1", name: "Ada", email: "ada@x.com" },
+        _count: { members: 3 },
       },
     ]);
     const count = vi.fn().mockResolvedValue(1);
-    const { listAllTeams } = await freshAdmin({ team: { findMany, count } });
+    const { listAllProjects } = await freshAdmin({ project: { findMany, count } });
 
-    const result = await listAllTeams({ page: 1, limit: 20 });
-    expect(result.data[0]).toMatchObject({ id: "team_1", memberCount: 3, projectCount: 2 });
+    const result = await listAllProjects({ page: 1, limit: 20 });
+    expect(result.data[0]).toMatchObject({ id: "proj_1", memberCount: 3, owner: { id: "user_1" } });
     expect(result.pagination).toEqual({ page: 1, limit: 20, total: 1 });
   });
 });

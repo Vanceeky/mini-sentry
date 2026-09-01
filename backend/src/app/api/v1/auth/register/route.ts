@@ -5,6 +5,7 @@ import { resolveCorsHeaders } from "@/lib/cors";
 import { MAX_AUTH_PAYLOAD_BYTES } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { ApiError, ERRORS, jsonError } from "@/lib/errors";
+import { acceptInvitation } from "@/lib/invitation";
 import { hashPassword } from "@/lib/password";
 
 export async function OPTIONS(request: Request): Promise<NextResponse> {
@@ -35,7 +36,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return jsonError(ERRORS.validationError(message), cors);
     }
 
-    const { name, email, password } = result.data;
+    const { name, email, password, invitationToken } = result.data;
 
     let user;
     try {
@@ -52,7 +53,26 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     const role = await syncSuperAdminRole(user.id, user.email, user.role);
 
-    return NextResponse.json({ success: true, user: { ...user, role } }, { status: 201, headers: cors });
+    // The account is already committed at this point — a bad/expired/
+    // foreign invitation token must never undo or fail the registration
+    // that just succeeded. Its outcome is reported as a sub-field instead,
+    // and this call is wrapped in its own try/catch so an unexpected
+    // failure here can't turn a successful registration into a 500.
+    let invitation: { status: string; projectId?: string } | undefined;
+    if (invitationToken) {
+      try {
+        const outcome = await acceptInvitation(invitationToken, user.id, user.email);
+        invitation = outcome.status === "accepted" ? { status: outcome.status, projectId: outcome.projectId } : { status: outcome.status };
+      } catch (invitationError) {
+        console.error("best-effort invitation acceptance during registration failed", invitationError);
+        invitation = { status: "not_found" };
+      }
+    }
+
+    return NextResponse.json(
+      { success: true, user: { ...user, role }, ...(invitation ? { invitation } : {}) },
+      { status: 201, headers: cors },
+    );
   } catch (error) {
     if (error instanceof ApiError) {
       return jsonError(error, cors);

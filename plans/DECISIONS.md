@@ -1006,6 +1006,105 @@ decision:
   and republishing a new SDK version — an accepted, documented trade-off,
   not an oversight.
 
+## Phase 15 — Direct Project Membership, Invite-to-Register, Error Status
+
+**Team removed entirely, replaced by direct `Project` ↔ `ProjectMember`.**
+Phase 14's `Team`/`TeamMember` layer existed to let multiple people share a
+project without every project needing its own ad-hoc access list — but in
+practice it added a whole extra entity (create a team, attach a project to
+it, manage `LEAD`/`MEMBER` roles within the team) between "owner" and "who
+else can see this." The user asked to collapse that: each project just has
+members directly, no team-creation step. `Team`, `TeamMember`, `TeamRole`,
+and every `/teams` endpoint are deleted outright — not deprecated, not kept
+as an unused code path — since nothing in the deployed product depended on
+team identity independent of the projects it granted access to.
+
+**Owner is the only lead — no promotable role on members.** Phase 14 had
+`LEAD` (can manage members/invitations) vs. `MEMBER` (read + self-assign).
+Phase 15 collapses this to a binary: the project's `ownerId` (already the
+sole identity for rename/delete/key-rotation since Phase 10) is now also the
+sole identity for member/invitation management — a member is just a member,
+full stop. Confirmed explicitly with the user ("the creator of the project
+is the lead") rather than assumed. This is strictly simpler than Phase 14's
+"last LEAD" guard: since there's exactly one owner and ownership is
+immutable, there's no equivalent "last owner" race to guard against —
+`CANNOT_REMOVE_OWNER` is a flat rejection, not a count check.
+
+**The owner deliberately gets no `ProjectMember` row.** Ownership already
+lives in `Project.ownerId`; giving the owner a `ProjectMember` row too would
+create two sources of truth for "does this user have access." Member-listing
+(`lib/projectMembers.ts`) synthesizes an `isOwner: true` row on top of the
+real `ProjectMember` rows instead. The one place this needs special-casing:
+`assignErrorGroup`'s target-membership check (assigning *to* the owner) —
+the owner passes without a `ProjectMember` lookup at all.
+
+**Register-with-invite-token, not "register then accept."** The user
+explicitly asked for a flow where a brand-new invitee receives an email,
+and can go straight from that email to a working account inside one
+project. Requiring register-then-a-separate-authenticated-accept-call would
+mean either making the invite email link to a page this backend doesn't
+serve (no frontend deployed here) or asking the invitee to re-discover the
+token after registering. Instead: `GET /api/v1/invitations/preview` (public,
+no auth) lets a brand-new person see what they're joining before creating an
+account, and `POST /api/v1/auth/register` accepts an optional
+`invitationToken` and joins the project as part of the same request.
+**Registration must never fail because of a bad token** — a stale/expired/
+foreign/unknown token still creates the account; only the response's
+`invitation.status` sub-field reports what happened (`accepted`/
+`not_found`/`expired`/`email_mismatch`). This mirrors the existing
+best-effort-side-effect convention (`notifyIfNeeded` at the event-ingestion
+call site) applied to a new call site: the critical write (account creation)
+commits regardless of the auxiliary one (project join) succeeding.
+
+**Real SMTP delivery (Gmail App Password), with the same graceful-fallback
+factory pattern as `NotificationService`.** The user said they'd generate a
+Gmail App Password rather than defer email indefinitely, so
+`lib/email.ts` gained `SmtpEmailService` (nodemailer) alongside the existing
+`ConsoleEmailService`. `getEmailService()` picks the SMTP implementation
+only when **all five** of `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/
+`SMTP_FROM` are set — deliberately all-or-nothing rather than partial
+configuration silently degrading in a confusing way, and falling back to
+the console placeholder (not a hard failure) when unset, so the app keeps
+running with zero email configuration exactly as it did in Phase 14. The
+invitation-creation API response's raw token remains the *reliable*
+delivery path regardless of SMTP configuration — email is additive, never
+load-bearing.
+
+**Error status is open to any project member/owner — a deliberately more
+permissive rule than assignment.** Assignment stays owner-vs-self (an owner
+assigns anyone; a member only assigns/unassigns themselves), but `status`
+(`PENDING`/`IN_PROGRESS`/`DONE`) can be set by *anyone* with project access,
+regardless of who the group is currently assigned to. Confirmed explicitly
+with the user ("Any project member, any error") rather than assumed
+symmetric with assignment — the reasoning being that status is a shared,
+low-stakes signal ("is someone looking at this"), not an ownership-like
+claim the way assignment is.
+
+**Two interpretive calls, made without re-confirming since they're
+low-risk/additive:**
+- `GET /api/v1/admin/projects` replaces `GET /api/v1/admin/teams` as the
+  superadmin "see my clients" view, since Team no longer exists to be that
+  view's subject — projects are the natural successor (each with owner +
+  member count).
+- `GET /api/v1/projects` was extended from "projects I own" to "projects I
+  can access" (owned + member, each tagged `isOwner`) — without this, a
+  newly-invited member would have no way to discover *which* project they
+  just joined after registering with a token. Purely additive: a user with
+  no memberships sees identical results to before.
+
+**Migration risk flagged, gating the production apply**: the generated
+migration adds `invitations.projectId` as `NOT NULL` with no default — this
+fails outright against production if any `invitations` rows already exist
+there (Neon `canary-db`), since there's no existing project to backfill
+from. Before ever running `prisma migrate deploy` against production, the
+plan requires checking `SELECT count(*) FROM invitations` (and `teams`/
+`team_members`, being dropped) on the live database first — the local
+migration is generated, hand-reviewed, and applied to local Postgres only
+as of this writing; see the migration file itself
+(`prisma/migrations/20260901034539_remove_teams_add_project_members_and_status/`)
+for the exact DDL. This entry should be revisited once the production apply
+actually happens, to record whether existing rows were found.
+
 ## Deferred (future phases, not implemented now)
 
 - XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
@@ -1013,10 +1112,12 @@ decision:
   host app needs it.
 - Real push provider integration (Expo Push, FCM): the `NotificationService`
   interface exists (Phase 12); no concrete provider is wired up.
-- Real email provider integration (Resend, SMTP, ...) for invitation emails:
-  the `EmailService` interface exists (Phase 14); no concrete provider is
-  wired up — the invitation-creation API response's raw token is the
-  reliable delivery path today.
+- Real email provider integration beyond SMTP: Phase 15 wired up
+  `SmtpEmailService` (nodemailer, e.g. Gmail + App Password) behind the
+  `EmailService` interface; a dedicated transactional-email provider
+  (Resend, SES, ...) remains unbuilt if SMTP deliverability becomes a
+  problem at scale. The invitation-creation API response's raw token is
+  always the reliable delivery path regardless.
 - Redis-backed (or otherwise multi-instance-correct) rate limiting: today's
   in-memory limiter (Phase 13) only counts correctly within a single process.
 - Sliding-window/token-bucket rate limiting: today's fixed-window limiter

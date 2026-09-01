@@ -4,7 +4,7 @@ const user = { id: "user_1", name: "Ada", email: "ada@example.com" };
 
 async function freshRoute(opts: {
   authFails?: boolean;
-  listOwnedProjects?: ReturnType<typeof vi.fn>;
+  listAccessibleProjects?: ReturnType<typeof vi.fn>;
   createProject?: ReturnType<typeof vi.fn>;
 } = {}) {
   vi.resetModules();
@@ -19,7 +19,7 @@ async function freshRoute(opts: {
       : vi.fn().mockResolvedValue(user),
   }));
   vi.doMock("@/lib/project", () => ({
-    listOwnedProjects: opts.listOwnedProjects ?? vi.fn().mockResolvedValue([]),
+    listAccessibleProjects: opts.listAccessibleProjects ?? vi.fn().mockResolvedValue([]),
     createProject: opts.createProject ?? vi.fn(),
   }));
   return import("./route");
@@ -55,7 +55,7 @@ describe("GET /api/v1/projects", () => {
 
   it("returns 200 with the current user's projects", async () => {
     const projects = [{ id: "proj_1", name: "App", apiKeyLastFour: "abcd" }];
-    const { GET } = await freshRoute({ listOwnedProjects: vi.fn().mockResolvedValue(projects) });
+    const { GET } = await freshRoute({ listAccessibleProjects: vi.fn().mockResolvedValue(projects) });
 
     const response = await GET(makeRequest("GET"));
     expect(response.status).toBe(200);

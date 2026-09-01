@@ -16,16 +16,14 @@ export type ErrorCode =
   | "ERROR_GROUP_NOT_FOUND"
   | "DEVICE_NOT_FOUND"
   | "RATE_LIMITED"
-  | "TEAM_NOT_FOUND"
   | "FORBIDDEN"
   | "INSUFFICIENT_ROLE"
-  | "NOT_A_TEAM_MEMBER"
+  | "NOT_A_PROJECT_MEMBER"
   | "INVITATION_NOT_FOUND"
   | "INVITATION_EXPIRED"
   | "INVITATION_EMAIL_MISMATCH"
   | "INVITATION_ALREADY_PENDING"
-  | "PROJECT_NOT_ON_TEAM"
-  | "LAST_TEAM_LEAD";
+  | "CANNOT_REMOVE_OWNER";
 
 /**
  * Deliberately-thrown API errors. Anything else caught by the route
@@ -81,19 +79,15 @@ export const ERRORS = {
       `Too many requests. Try again in ${retryAfterSeconds} second(s).`,
       retryAfterSeconds,
     ),
-  // Same IDOR-safe rationale as PROJECT_NOT_FOUND/DEVICE_NOT_FOUND — identical
-  // whether the team id doesn't exist or belongs to a team the caller isn't on.
-  TEAM_NOT_FOUND: () => new ApiError("TEAM_NOT_FOUND", 404, "No team with this id exists for the current user."),
   // Generic "authenticated but not authorized" — used by requireSuperAdmin.
   FORBIDDEN: () => new ApiError("FORBIDDEN", 403, "You do not have permission to perform this action."),
-  // Distinct from FORBIDDEN: a team MEMBER (not a LEAD) tried to act on
-  // someone else's assignment — the catalog already differentiates this
-  // granularly elsewhere (DEVICE_NOT_FOUND vs PROJECT_NOT_FOUND), not a
-  // generic NOT_FOUND, so mirror that here rather than collapsing into FORBIDDEN.
-  INSUFFICIENT_ROLE: () =>
-    new ApiError("INSUFFICIENT_ROLE", 403, "Your role on this team does not allow this action."),
-  NOT_A_TEAM_MEMBER: () =>
-    new ApiError("NOT_A_TEAM_MEMBER", 400, "The specified user is not a member of this project's team."),
+  // Distinct from FORBIDDEN: a non-owner member tried to act on someone
+  // else's assignment — the catalog already differentiates this granularly
+  // elsewhere (DEVICE_NOT_FOUND vs PROJECT_NOT_FOUND), not a generic
+  // NOT_FOUND, so mirror that here rather than collapsing into FORBIDDEN.
+  INSUFFICIENT_ROLE: () => new ApiError("INSUFFICIENT_ROLE", 403, "Only the project owner may perform this action."),
+  NOT_A_PROJECT_MEMBER: () =>
+    new ApiError("NOT_A_PROJECT_MEMBER", 400, "The specified user is not a member of this project."),
   // Not found / wrong status / lazily-expired all collapse to this one code —
   // a revoked/accepted/expired token must behave identically to a token that
   // never existed, so guessing/reusing an old token can't reveal it was ever valid.
@@ -107,11 +101,9 @@ export const ERRORS = {
   INVITATION_EMAIL_MISMATCH: () =>
     new ApiError("INVITATION_EMAIL_MISMATCH", 403, "This invitation was not sent to your account's email address."),
   INVITATION_ALREADY_PENDING: () =>
-    new ApiError("INVITATION_ALREADY_PENDING", 409, "A pending invitation already exists for this email on this team."),
-  PROJECT_NOT_ON_TEAM: () =>
-    new ApiError("PROJECT_NOT_ON_TEAM", 409, "This project is not attached to a team, so error groups cannot be assigned."),
-  LAST_TEAM_LEAD: () =>
-    new ApiError("LAST_TEAM_LEAD", 409, "Cannot remove or demote the last remaining LEAD of a team."),
+    new ApiError("INVITATION_ALREADY_PENDING", 409, "A pending invitation already exists for this email on this project."),
+  CANNOT_REMOVE_OWNER: () =>
+    new ApiError("CANNOT_REMOVE_OWNER", 409, "The project owner cannot be removed or leave their own project."),
   invalidEvent: (message: string) => new ApiError("INVALID_EVENT", 400, message),
   validationError: (message: string) => new ApiError("VALIDATION_ERROR", 400, message),
 };

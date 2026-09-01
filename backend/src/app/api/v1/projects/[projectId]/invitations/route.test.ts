@@ -5,10 +5,9 @@ const user = { id: "user_1", name: "Ada", email: "ada@example.com" };
 async function freshRoute(
   opts: {
     authFails?: boolean;
-    findAccessibleTeam?: ReturnType<typeof vi.fn>;
-    findTeamMembership?: ReturnType<typeof vi.fn>;
+    findOwnedProject?: ReturnType<typeof vi.fn>;
     createInvitation?: ReturnType<typeof vi.fn>;
-    listPendingInvitationsForTeam?: ReturnType<typeof vi.fn>;
+    listPendingInvitationsForProject?: ReturnType<typeof vi.fn>;
     sendInvitationEmail?: ReturnType<typeof vi.fn>;
   } = {},
 ) {
@@ -17,11 +16,8 @@ async function freshRoute(
   vi.doMock("@/lib/authGuard", () => ({
     requireSessionUser: opts.authFails ? vi.fn().mockRejectedValue(ERRORS.UNAUTHORIZED()) : vi.fn().mockResolvedValue(user),
   }));
-  vi.doMock("@/lib/team", () => ({
-    findAccessibleTeam: opts.findAccessibleTeam ?? vi.fn().mockResolvedValue({ id: "team_1" }),
-  }));
-  vi.doMock("@/lib/access", () => ({
-    findTeamMembership: opts.findTeamMembership ?? vi.fn().mockResolvedValue({ role: "LEAD" }),
+  vi.doMock("@/lib/project", () => ({
+    findOwnedProject: opts.findOwnedProject ?? vi.fn().mockResolvedValue({ id: "proj_1" }),
   }));
   vi.doMock("@/lib/invitation", () => ({
     createInvitation:
@@ -30,10 +26,10 @@ async function freshRoute(
         status: "created",
         invitation: { id: "inv_1", invitedEmail: "bob@example.com" },
         token: "raw-token",
-        teamName: "Rocket",
+        projectName: "Rocket",
         inviterName: "Ada",
       }),
-    listPendingInvitationsForTeam: opts.listPendingInvitationsForTeam ?? vi.fn().mockResolvedValue([]),
+    listPendingInvitationsForProject: opts.listPendingInvitationsForProject ?? vi.fn().mockResolvedValue([]),
   }));
   vi.doMock("@/lib/email", () => ({
     getEmailService: () => ({ sendInvitationEmail: opts.sendInvitationEmail ?? vi.fn().mockResolvedValue(undefined) }),
@@ -42,39 +38,37 @@ async function freshRoute(
 }
 
 function ctx() {
-  return { params: Promise.resolve({ teamId: "team_1" }) };
+  return { params: Promise.resolve({ projectId: "proj_1" }) };
 }
 
-describe("GET /api/v1/teams/:teamId/invitations", () => {
+describe("GET /api/v1/projects/:projectId/invitations", () => {
   beforeEach(() => vi.spyOn(console, "error").mockImplementation(() => {}));
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock("@/lib/authGuard");
-    vi.doUnmock("@/lib/team");
-    vi.doUnmock("@/lib/access");
+    vi.doUnmock("@/lib/project");
     vi.doUnmock("@/lib/invitation");
     vi.doUnmock("@/lib/email");
   });
 
-  it("returns 403 for a non-LEAD member", async () => {
-    const { GET } = await freshRoute({ findTeamMembership: vi.fn().mockResolvedValue({ role: "MEMBER" }) });
+  it("returns 404 when the caller doesn't own the project", async () => {
+    const { GET } = await freshRoute({ findOwnedProject: vi.fn().mockResolvedValue(null) });
     const response = await GET(new Request("http://localhost:3000/x"), ctx());
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
   });
 
-  it("returns 200 with pending invitations for a LEAD", async () => {
+  it("returns 200 with pending invitations for the owner", async () => {
     const { GET } = await freshRoute();
     expect((await GET(new Request("http://localhost:3000/x"), ctx())).status).toBe(200);
   });
 });
 
-describe("POST /api/v1/teams/:teamId/invitations", () => {
+describe("POST /api/v1/projects/:projectId/invitations", () => {
   beforeEach(() => vi.spyOn(console, "error").mockImplementation(() => {}));
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock("@/lib/authGuard");
-    vi.doUnmock("@/lib/team");
-    vi.doUnmock("@/lib/access");
+    vi.doUnmock("@/lib/project");
     vi.doUnmock("@/lib/invitation");
     vi.doUnmock("@/lib/email");
   });
@@ -91,7 +85,7 @@ describe("POST /api/v1/teams/:teamId/invitations", () => {
     expect(response.status).toBe(201);
     const body = (await response.json()) as { token: string };
     expect(body.token).toBe("raw-token");
-    expect(sendInvitationEmail).toHaveBeenCalledWith("bob@example.com", expect.objectContaining({ teamName: "Rocket" }));
+    expect(sendInvitationEmail).toHaveBeenCalledWith("bob@example.com", expect.objectContaining({ projectName: "Rocket" }));
   });
 
   it("still returns 201 when the email send fails (best-effort)", async () => {

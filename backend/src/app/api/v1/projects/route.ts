@@ -3,7 +3,7 @@ import { requireSessionUser } from "@/lib/authGuard";
 import { resolveCorsHeaders } from "@/lib/cors";
 import { MAX_PROJECT_PAYLOAD_BYTES } from "@/lib/constants";
 import { ApiError, ERRORS, jsonError } from "@/lib/errors";
-import { createProject, listOwnedProjects } from "@/lib/project";
+import { createProject, listAccessibleProjects } from "@/lib/project";
 import { createProjectSchema } from "@/lib/projectSchema";
 
 const ALLOWED_METHODS = "GET, POST, OPTIONS";
@@ -18,7 +18,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   try {
     const user = await requireSessionUser(request);
-    const projects = await listOwnedProjects(user.id);
+    const projects = await listAccessibleProjects(user.id);
     return NextResponse.json({ success: true, projects }, { status: 200, headers: cors });
   } catch (error) {
     if (error instanceof ApiError) {

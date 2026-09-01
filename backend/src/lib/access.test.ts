@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-async function freshAccess(prismaMock: { project?: Record<string, ReturnType<typeof vi.fn>>; teamMember?: Record<string, ReturnType<typeof vi.fn>> }) {
+async function freshAccess(prismaMock: { project?: Record<string, ReturnType<typeof vi.fn>>; projectMember?: Record<string, ReturnType<typeof vi.fn>> }) {
   vi.resetModules();
   vi.doMock("./db", () => ({ prisma: prismaMock }));
   return import("./access");
@@ -9,14 +9,14 @@ async function freshAccess(prismaMock: { project?: Record<string, ReturnType<typ
 describe("resolveProjectAccess", () => {
   afterEach(() => vi.doUnmock("./db"));
 
-  it("scopes the query to ownerId OR team membership — never just projectId", async () => {
+  it("scopes the query to ownerId OR project membership — never just projectId", async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
     const { resolveProjectAccess } = await freshAccess({ project: { findFirst } });
 
     await resolveProjectAccess("user_1", "proj_1");
     expect(findFirst.mock.calls[0][0].where).toEqual({
       id: "proj_1",
-      OR: [{ ownerId: "user_1" }, { team: { members: { some: { userId: "user_1" } } } }],
+      OR: [{ ownerId: "user_1" }, { members: { some: { userId: "user_1" } } }],
     });
   });
 
@@ -26,20 +26,20 @@ describe("resolveProjectAccess", () => {
   });
 });
 
-describe("findTeamMembership", () => {
+describe("findProjectMembership", () => {
   afterEach(() => vi.doUnmock("./db"));
 
-  it("looks up by the compound teamId_userId unique key", async () => {
-    const findUnique = vi.fn().mockResolvedValue({ role: "LEAD" });
-    const { findTeamMembership } = await freshAccess({ teamMember: { findUnique } });
+  it("looks up by the compound projectId_userId unique key", async () => {
+    const findUnique = vi.fn().mockResolvedValue({ userId: "user_1" });
+    const { findProjectMembership } = await freshAccess({ projectMember: { findUnique } });
 
-    const result = await findTeamMembership("team_1", "user_1");
-    expect(findUnique.mock.calls[0][0].where).toEqual({ teamId_userId: { teamId: "team_1", userId: "user_1" } });
-    expect(result).toEqual({ role: "LEAD" });
+    const result = await findProjectMembership("proj_1", "user_1");
+    expect(findUnique.mock.calls[0][0].where).toEqual({ projectId_userId: { projectId: "proj_1", userId: "user_1" } });
+    expect(result).toEqual({ userId: "user_1" });
   });
 
   it("returns null when the user isn't a member", async () => {
-    const { findTeamMembership } = await freshAccess({ teamMember: { findUnique: vi.fn().mockResolvedValue(null) } });
-    expect(await findTeamMembership("team_1", "user_2")).toBeNull();
+    const { findProjectMembership } = await freshAccess({ projectMember: { findUnique: vi.fn().mockResolvedValue(null) } });
+    expect(await findProjectMembership("proj_1", "user_2")).toBeNull();
   });
 });

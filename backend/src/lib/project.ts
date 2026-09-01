@@ -42,6 +42,24 @@ export async function listOwnedProjects(ownerId: string): Promise<SafeProject[]>
   });
 }
 
+export type AccessibleProjectSummary = SafeProject & { isOwner: boolean };
+
+/**
+ * Every project the caller can access — owned, or joined as a member (see
+ * ProjectMember) — each tagged isOwner. Purely additive on top of
+ * listOwnedProjects: a caller with no memberships sees identical results.
+ * Without this, a newly-invited member would have no way to discover which
+ * project they joined after the one-time invite/register response.
+ */
+export async function listAccessibleProjects(userId: string): Promise<AccessibleProjectSummary[]> {
+  const projects = await prisma.project.findMany({
+    where: { OR: [{ ownerId: userId }, { members: { some: { userId } } }] },
+    select: { ...SAFE_PROJECT_SELECT, ownerId: true },
+    orderBy: { createdAt: "desc" },
+  });
+  return projects.map(({ ownerId, ...project }) => ({ ...project, isOwner: ownerId === userId }));
+}
+
 /**
  * Scoped to ownerId in the query itself (not "find then check owner in JS")
  * — a project that exists but belongs to someone else is indistinguishable
