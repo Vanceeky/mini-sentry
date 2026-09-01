@@ -1092,18 +1092,17 @@ low-risk/additive:**
   just joined after registering with a token. Purely additive: a user with
   no memberships sees identical results to before.
 
-**Migration risk flagged, gating the production apply**: the generated
-migration adds `invitations.projectId` as `NOT NULL` with no default — this
-fails outright against production if any `invitations` rows already exist
-there (Neon `canary-db`), since there's no existing project to backfill
-from. Before ever running `prisma migrate deploy` against production, the
-plan requires checking `SELECT count(*) FROM invitations` (and `teams`/
-`team_members`, being dropped) on the live database first — the local
-migration is generated, hand-reviewed, and applied to local Postgres only
-as of this writing; see the migration file itself
+**Migration risk flagged, and it was real**: the generated migration adds
+`invitations.projectId` as `NOT NULL` with no default. Checking production
+Neon (`canary-db`) before migrating found 2 `PENDING` invitation rows, both
+addressed to teams that had zero projects attached — so there was no
+project to backfill `projectId` from even in principle, not just "we didn't
+bother." Confirmed with the user that these were discardable (still
+pending, unusable either way) and deleted them, then ran
+`prisma migrate deploy` against production. See the migration file itself
 (`prisma/migrations/20260901034539_remove_teams_add_project_members_and_status/`)
-for the exact DDL. This entry should be revisited once the production apply
-actually happens, to record whether existing rows were found.
+for the exact DDL, and `plans/PROGRESS.md`'s Phase 15 entry for the full
+rollout sequence and live verification.
 
 ## Deferred (future phases, not implemented now)
 

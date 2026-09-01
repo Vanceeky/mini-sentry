@@ -1653,7 +1653,7 @@ usual pattern.
 
 ## Phase 15 — Backend: Direct Project Membership, Invite-to-Register, Error Status
 
-**Status:** Implemented and verified locally; production migration not yet applied (gated on confirming no existing production `invitations` rows — see below).
+**Status:** Complete — implemented, verified locally, mirrored to `canary-backend`, and rolled out to production.
 
 New scope, not pre-planned — the user asked to remove the Team entity
 entirely, replacing Phase 14's team-mediated project access with direct
@@ -1752,16 +1752,26 @@ otherwise — the response token is always the reliable path), superadmin
 role snapshotted into the session token until next login, no API to
 grant/revoke SUPERADMIN.
 
-**Production migration status:** the generated migration adds
-`invitations.projectId` as `NOT NULL` with no default, which fails outright
-against production Neon if any `invitations` rows already exist there. Per
-`plans/DECISIONS.md`'s Phase 15 entry, this must be checked (and the
-migration approach revised if rows exist) before `prisma migrate deploy` is
-ever run against production — **not done yet as of this writing.**
+**Production rollout:** checked production Neon (`canary-db`) before
+migrating — found 3 `teams`, 3 `team_members`, 2 `PENDING` `invitations`
+(both addressed to teams with **zero** attached projects, so their
+`projectId` had nothing to backfill from). Confirmed with the user and
+deleted the 2 stale invitation rows, then ran `prisma migrate deploy`
+against production (`teams`/`team_members` dropped, `project_members`
+created, `invitations.projectId` populated going forward). Pushed
+`canary-backend` immediately after so the deployed code matched the new
+schema with minimal window. Verified live end-to-end against
+`https://canary-backend-pi.vercel.app`: register → create project → invite
+by email → public preview (no auth) → **register with the invite token**
+(auto-joined) → `GET /projects` shows it with `isOwner: false` → real event
+ingested → member reads errors and sets status `IN_PROGRESS` — all via curl
+against the live deployment, then all test rows (project, both users,
+cascaded error group) cleaned up and confirmed removed.
 
-**Commit:** not yet committed — code changes are complete and verified
-locally; commit + push (monorepo, then mirror to `canary-backend`) is the
-next step, followed by the gated production migration.
+**Commit:** `00d0ce8` (monorepo) — "backend: Phase 15 -- remove Team, direct
+project membership, invite-to-register, error status"; `e7cb948` in
+`canary-backend` (mirrored, same message). Both pushed to their respective
+`origin/main`.
 
 **Next phase:** none queued. Further work (a real transactional-email
 provider beyond SMTP, per-project CORS, password reset, etc.) is tracked in
