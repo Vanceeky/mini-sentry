@@ -560,20 +560,21 @@ automatically on send failure. Without that credential configured,
 API. Either way, `getNotificationService()` is the only place that changes;
 nothing in the event-ingestion path needs to.
 
-**Trigger rules** — at most **one** notification per event, never more, and
-most events trigger none:
+**Trigger rules** — every event notifies, exactly **one** type per event,
+chosen by priority:
 
 | Trigger | Condition | Priority |
 |---|---|---|
 | `NEW_ERROR` | The event created a brand-new error group | 1st |
 | `SERIOUS_ERROR` | A repeat `"http"` occurrence with `statusCode >= 500` | 2nd |
 | `REACTIVATED_ERROR` | The group's previous occurrence was over 24h ago | 3rd |
+| `ERROR_OCCURRED` | None of the above — an ordinary repeat occurrence | 4th (fallback) |
 
 If more than one condition applies to the same event (e.g. a brand-new error
 that's also a 5xx), only the highest-priority trigger fires — a new group is
 always the most novel/actionable signal, so `NEW_ERROR` wins over
-`SERIOUS_ERROR`, which in turn wins over `REACTIVATED_ERROR`. An ordinary
-repeat occurrence of an already-active group triggers nothing.
+`SERIOUS_ERROR`, which in turn wins over `REACTIVATED_ERROR`, which wins over
+the `ERROR_OCCURRED` fallback.
 
 **Payload** (deep-links a mobile client to the specific error):
 
@@ -585,9 +586,9 @@ repeat occurrence of an already-active group triggers nothing.
 event's own `message` otherwise. Registering/removing the devices that
 receive these notifications is documented under Devices above.
 
-`ASSIGNED_ERROR` (Phase 14) is a fourth trigger, fired only by the error
-assignment endpoint (see the Errors section's `PATCH` endpoint above), never
-by event ingestion — it doesn't compete with the three ingestion-time
+`ASSIGNED_ERROR` (Phase 14) is a fifth, separate trigger, fired only by the
+error assignment endpoint (see the Errors section's `PATCH` endpoint above),
+never by event ingestion — it doesn't compete with the four ingestion-time
 triggers above and can fire alongside one of them on the same error group.
 
 ## Project Members
@@ -890,9 +891,11 @@ resets).
   (inspect via `npm run db:studio -w backend` or `psql`).
 - **REACTIVATED_ERROR reuses the same 24h window as `activeGroups`** — not
   independently configurable.
-- **At most one notification per event, chosen by a fixed priority order**
-  (`NEW_ERROR` > `SERIOUS_ERROR` > `REACTIVATED_ERROR`) — not a scoring
-  engine; a single event can never trigger more than one notification.
+- **Exactly one notification per event, chosen by a fixed priority order**
+  (`NEW_ERROR` > `SERIOUS_ERROR` > `REACTIVATED_ERROR` > `ERROR_OCCURRED`
+  fallback) — not a scoring engine; a single event can never trigger more
+  than one notification, but every event triggers one (by explicit user
+  request — see `plans/DECISIONS.md`).
 - **No cascading unassign when a member is removed from a project while
   still assigned to one of its error groups** — the (now stale) assignment
   is left in place rather than automatically cleared. Revisit if this causes

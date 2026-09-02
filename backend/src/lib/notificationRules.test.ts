@@ -31,14 +31,14 @@ describe("determineNotificationType", () => {
     expect(determineNotificationType(httpEvent, basePersisted)).toBe("SERIOUS_ERROR");
   });
 
-  it("does not return SERIOUS_ERROR for a 4xx http event", () => {
+  it("falls back to ERROR_OCCURRED for a 4xx http event", () => {
     const httpEvent: CapturedEventInput = { ...baseEvent, type: "http", request: { url: "/x", method: "GET", statusCode: 404 } };
-    expect(determineNotificationType(httpEvent, basePersisted)).toBeNull();
+    expect(determineNotificationType(httpEvent, basePersisted)).toBe("ERROR_OCCURRED");
   });
 
-  it("does not return SERIOUS_ERROR for an http event with no statusCode (network failure)", () => {
+  it("falls back to ERROR_OCCURRED for an http event with no statusCode (network failure)", () => {
     const httpEvent: CapturedEventInput = { ...baseEvent, type: "http", request: { url: "/x", method: "GET" } };
-    expect(determineNotificationType(httpEvent, basePersisted)).toBeNull();
+    expect(determineNotificationType(httpEvent, basePersisted)).toBe("ERROR_OCCURRED");
   });
 
   it("returns REACTIVATED_ERROR when wasInactive is true and nothing higher-priority applies", () => {
@@ -55,8 +55,8 @@ describe("determineNotificationType", () => {
     expect(determineNotificationType(httpEvent, { ...basePersisted, wasInactive: true })).toBe("SERIOUS_ERROR");
   });
 
-  it("returns null when no trigger applies (ordinary repeat occurrence)", () => {
-    expect(determineNotificationType(baseEvent, basePersisted)).toBeNull();
+  it("returns ERROR_OCCURRED when no higher-priority trigger applies (ordinary repeat occurrence)", () => {
+    expect(determineNotificationType(baseEvent, basePersisted)).toBe("ERROR_OCCURRED");
   });
 
   it("never returns SERIOUS_ERROR for a resource event (no HTTP status exists)", () => {
@@ -65,7 +65,7 @@ describe("determineNotificationType", () => {
       type: "resource",
       resource: { url: "https://example.com/broken.png", tagName: "img" },
     };
-    expect(determineNotificationType(resourceEvent, basePersisted)).toBeNull();
+    expect(determineNotificationType(resourceEvent, basePersisted)).toBe("ERROR_OCCURRED");
     expect(determineNotificationType(resourceEvent, { ...basePersisted, isNewGroup: true })).toBe("NEW_ERROR");
   });
 });
@@ -94,6 +94,11 @@ describe("buildNotificationPayload", () => {
     const payload = buildNotificationPayload("REACTIVATED_ERROR", "proj_1", httpEvent, basePersisted);
     expect(payload.message).toBe("ERR GET /api/users");
     expect(payload.title).toBe("Error Reactivated");
+  });
+
+  it("uses 'Error Occurred' as the title for an ordinary repeat occurrence", () => {
+    const payload = buildNotificationPayload("ERROR_OCCURRED", "proj_1", baseEvent, basePersisted);
+    expect(payload.title).toBe("Error Occurred");
   });
 
   it("formats 'Failed to load <tagName>: <url>' for a resource event", () => {

@@ -1146,6 +1146,43 @@ rollout sequence and live verification.
   device" hasn't been confirmed live yet the way every other phase's
   functionality has been.
 
+## Post-Phase-15 — Notify on every event (ERROR_OCCURRED fallback)
+
+- **Reverses the Phase 12 "not every event" design, at the user's explicit,
+  repeated request** — Phase 12 followed the brief's own warning against
+  notifying on every event, treating a plain repeat occurrence as a no-op.
+  The user asked directly for the opposite ("it should trigger the notif
+  every time there will be an error"), so `determineNotificationType()`
+  (`lib/notificationRules.ts`) now always returns a `NotificationType` —
+  never `null` — via a fourth, lowest-priority fallback: `ERROR_OCCURRED`,
+  for any occurrence that isn't a new group, a serious repeat, or a
+  reactivation. The three existing triggers and their priority order are
+  unchanged; only the "nothing fires" case was removed. Trade-off, stated
+  plainly: a busy app repeating the same non-5xx bug will now push once per
+  occurrence, not once per group-lifecycle-event — real spam risk the
+  original design was built to avoid, accepted here because the user wants
+  it that way.
+- **`determineNotificationType()`'s return type changed from
+  `NotificationType | null` to `NotificationType`** — a real type-level
+  guarantee, not just a behavioral one. `notify.ts`'s now-dead `if (!type)
+  return` guard was removed rather than left as unreachable code.
+- **A real, unrelated bug surfaced and was fixed while testing this**:
+  `devices/flow.integration.test.ts` asserts on `ConsoleNotificationService`'s
+  exact log format, but `backend/.env` now has a real
+  `FIREBASE_SERVICE_ACCOUNT_JSON_BASE64` (Post-Phase-15's FCM work, above) —
+  so `getNotificationService()`'s singleton was picking `FcmNotificationService`
+  during this test, which logs nothing matching what the test looks for
+  (`fcm send failed` goes to `console.error`, not `console.log`). Deleting
+  `process.env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64` once in `beforeAll`
+  didn't fix it — confirmed via debug logging that Next.js's own env loader
+  (`@next/env`) re-populates `process.env` from `.env` as a side effect of
+  importing a route module, undoing a one-time delete. Fixed by deleting the
+  var immediately before *and* after each route import inside the test's
+  `ingest()` helper, run before every single ingestion rather than once.
+  This had been latent since the FCM credential was added — the DB-gated
+  integration suite was only run without `DATABASE_URL` after that change,
+  never actually exercised until now.
+
 ## Deferred (future phases, not implemented now)
 - Live-verified FCM delivery: `FcmNotificationService` (Post-Phase-15 above)
   is implemented but untested against a real Firebase project/device — no

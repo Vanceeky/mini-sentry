@@ -11,6 +11,7 @@ const TITLES: Record<NotificationType, string> = {
   NEW_ERROR: "New Error Detected",
   SERIOUS_ERROR: "Serious Error",
   REACTIVATED_ERROR: "Error Reactivated",
+  ERROR_OCCURRED: "Error Occurred",
   ASSIGNED_ERROR: "Error Assigned to You",
 };
 
@@ -25,19 +26,21 @@ function formatErrorSummary(event: CapturedEventInput): string {
 }
 
 /**
- * At most one trigger per event — the brief is explicit that not every
- * event should notify. Priority, when more than one condition applies to
- * the same event: a brand-new error group is the most novel/actionable
- * signal; failing that, a serious (5xx) response is the next most urgent;
- * failing that, a previously-quiet error reactivating is worth a nudge.
- * Deliberately simple and documented (see DECISIONS.md), not a scoring
- * engine — the brief explicitly asked to avoid building one.
+ * Every event notifies now — one type per event, chosen by priority, never
+ * "no notification." This reverses the original design (see DECISIONS.md's
+ * Phase 12 entry, which followed the brief's explicit warning against
+ * notifying on every event) at the user's explicit request. Priority, when
+ * more than one condition applies to the same event: a brand-new error
+ * group is the most novel/actionable signal; failing that, a serious (5xx)
+ * response is the next most urgent; failing that, a previously-quiet error
+ * reactivating is worth a nudge; failing all of those, it's an ordinary
+ * repeat occurrence, still worth a plain ERROR_OCCURRED notification.
  */
-export function determineNotificationType(event: CapturedEventInput, persisted: PersistedEvent): NotificationType | null {
+export function determineNotificationType(event: CapturedEventInput, persisted: PersistedEvent): NotificationType {
   if (persisted.isNewGroup) return "NEW_ERROR";
   if (event.type === "http" && (event.request?.statusCode ?? 0) >= 500) return "SERIOUS_ERROR";
   if (persisted.wasInactive) return "REACTIVATED_ERROR";
-  return null;
+  return "ERROR_OCCURRED";
 }
 
 export function buildNotificationPayload(

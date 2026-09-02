@@ -39,12 +39,16 @@ describe("notifyIfNeeded", () => {
     expect(notifyUserMock).not.toHaveBeenCalled();
   });
 
-  it("does nothing when no trigger condition is met", async () => {
-    const notifyUserMock = vi.fn();
+  it("still notifies with ERROR_OCCURRED when no higher-priority trigger condition is met", async () => {
+    const notifyUserMock = vi.fn().mockResolvedValue(undefined);
     const { notifyIfNeeded } = await freshNotify(notifyUserMock);
 
     await notifyIfNeeded({ id: "proj_1", name: "P", ownerId: "user_1" }, event, ordinaryPersisted);
-    expect(notifyUserMock).not.toHaveBeenCalled();
+
+    expect(notifyUserMock).toHaveBeenCalledTimes(1);
+    const [userId, payload] = notifyUserMock.mock.calls[0];
+    expect(userId).toBe("user_1");
+    expect(payload).toMatchObject({ type: "ERROR_OCCURRED", projectId: "proj_1", errorGroupId: "grp_1" });
   });
 
   it("notifies the project owner with a NEW_ERROR payload for a new group", async () => {

@@ -2,10 +2,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // Opt-in: only runs when DATABASE_URL is set (a real local Postgres — see
 // backend/docker-compose.yml). Drives the real route handlers through:
-// register device -> ingest events that should/shouldn't trigger each of
-// the 3 notification rules (checking the actual console.log calls the
-// ConsoleNotificationService makes, since no real push provider exists) ->
-// delete device -> confirm a second user gets 404 on someone else's device.
+// register device -> ingest events covering each of the 4 notification
+// types (checking the actual console.log calls ConsoleNotificationService
+// makes) -> delete device -> confirm a second user gets 404 on someone
+// else's device.
+//
+// See ingest()'s own comment for why FIREBASE_SERVICE_ACCOUNT_JSON_BASE64
+// gets cleared there — this test needs ConsoleNotificationService's exact
+// log format regardless of the developer's local .env.
 describe.skipIf(!process.env.DATABASE_URL)("device registration + notification flow (real DB)", () => {
   let prisma: import("@prisma/client").PrismaClient;
   let projectId: string;
@@ -40,7 +44,15 @@ describe.skipIf(!process.env.DATABASE_URL)("device registration + notification f
   }
 
   async function ingest(body: Record<string, unknown>) {
+    // Next.js's env loader (@next/env) re-populates process.env from .env as
+    // a side effect of importing a route module — a delete before the import
+    // alone doesn't stick, since the import itself can re-trigger the reload.
+    // Delete both before and after so a real local FCM credential can never
+    // flip getNotificationService()'s singleton onto the FCM path here —
+    // this test asserts on ConsoleNotificationService's exact log format.
+    delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64;
     const { POST: ingestEvent } = await import("../events/route");
+    delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64;
     const request = new Request("http://localhost:3000/api/v1/events", {
       method: "POST",
       headers: { Authorization: `Bearer ${projectApiKey}`, "Content-Type": "application/json" },
@@ -105,7 +117,7 @@ describe.skipIf(!process.env.DATABASE_URL)("device registration + notification f
     logSpy.mockRestore();
   });
 
-  it("does NOT notify for an ordinary repeat occurrence of an already-active group", async () => {
+  it("still logs an ERROR_OCCURRED notification for an ordinary repeat occurrence of an already-active group", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     // Second occurrence of the SAME group from the previous test — not new, not 5xx, not inactive.
@@ -120,7 +132,8 @@ describe.skipIf(!process.env.DATABASE_URL)("device registration + notification f
     });
 
     const notifyCall = logSpy.mock.calls.find(([msg]) => typeof msg === "string" && msg.includes("no push provider"));
-    expect(notifyCall).toBeUndefined();
+    expect(notifyCall).toBeDefined();
+    expect(notifyCall?.[1]).toMatchObject({ type: "ERROR_OCCURRED", title: "Error Occurred" });
 
     logSpy.mockRestore();
   });

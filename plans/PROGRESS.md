@@ -1899,3 +1899,62 @@ that gap.
   detail, and the SDK deliberately never reads response bodies even when a
   backend's debug mode puts a traceback in one. Seeing that would need a
   separate server-side integration, out of scope for this SDK.
+
+## Post-Phase-15 — Notify on every event (ERROR_OCCURRED fallback)
+
+New scope, not pre-planned: the user asked directly for every error event to
+trigger a mobile push, reversing Phase 12's deliberate "not every event"
+design. See `plans/DECISIONS.md`'s matching entry for the full rationale and
+trade-off.
+
+**What was built:**
+- `backend/src/lib/notificationRules.ts`'s `determineNotificationType()` now
+  always returns a `NotificationType` (never `null`) — a fourth, lowest-
+  priority fallback, `ERROR_OCCURRED`, fires for any occurrence that isn't a
+  new group, a serious 5xx repeat, or a reactivation. `NEW_ERROR` >
+  `SERIOUS_ERROR` > `REACTIVATED_ERROR` priority is unchanged; only the
+  "trigger nothing" case was removed.
+- `backend/src/lib/notification.ts`'s `NotificationType` union gained
+  `ERROR_OCCURRED`; `notificationRules.ts`'s `TITLES` map gained its title,
+  `"Error Occurred"`.
+- `backend/src/lib/notify.ts`: removed the now-dead `if (!type) return`
+  guard — `determineNotificationType()`'s return type no longer includes
+  `null`, so this was unreachable code, not just an unused branch.
+- `docs/API.md`'s Notification Foundation section and Known Limitations
+  updated: the trigger-rules table gained the `ERROR_OCCURRED` row, and the
+  "most events trigger none" line was corrected to describe the new
+  every-event behavior.
+
+**A real, pre-existing bug found and fixed along the way:**
+`devices/flow.integration.test.ts` (DB-gated) started failing entirely —
+including its `NEW_ERROR` case, which this session's change never touched.
+Root cause: `backend/.env` has carried a real `FIREBASE_SERVICE_ACCOUNT_JSON_BASE64`
+since the FCM work earlier this session, so `getNotificationService()`'s
+singleton now picks `FcmNotificationService` in this test too — which logs
+send failures via `console.error`, not the `console.log` calls this test
+asserts on. This had been latent since the FCM credential was first added;
+the DB-gated suite was only run without `DATABASE_URL` at that time (see
+that session's Known Limitations), so it was never actually exercised until
+now. Fixed by clearing `process.env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64`
+immediately before *and* after each route import inside the test's
+`ingest()` helper (confirmed via debug logging that a single `beforeAll`-time
+delete doesn't stick — Next's own `@next/env` loader re-populates
+`process.env` from `.env` as a side effect of importing a route module).
+
+**Tests performed:**
+- `npm run typecheck -w backend` — clean.
+- `npm run test -w backend` with `DATABASE_URL` set (local Postgres started
+  via `colima start` + `docker start backend-db-1`): **396 passed, 0
+  skipped** — up from failing 4/6 in `devices/flow.integration.test.ts`
+  before the fix above. Updated `notificationRules.test.ts` (4 changed
+  assertions, 1 new payload test) and `notify.test.ts` (1 changed assertion)
+  for the new fallback behavior.
+- `npm run test -w backend` with no `DATABASE_URL`: 372 passed, 24 skipped —
+  consistent with before (one net-new unit test, `ERROR_OCCURRED`'s payload
+  title).
+- `npm run build -w backend` — all 23 routes compiled successfully.
+
+**Known limitations:** unchanged from the FCM entry above — real push
+delivery is still not live-verified against an actual Firebase project.
+This change only affects *which* events get a notification computed for
+them, not whether that notification is actually delivered.

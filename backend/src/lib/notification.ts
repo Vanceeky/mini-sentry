@@ -6,7 +6,12 @@ import { prisma } from "./db";
 // route, not through notify.ts/notificationRules.ts — those are keyed off
 // ingestion's CapturedEventInput/PersistedEvent, which a manual assign
 // action doesn't produce. See DECISIONS.md.
-export type NotificationType = "NEW_ERROR" | "SERIOUS_ERROR" | "REACTIVATED_ERROR" | "ASSIGNED_ERROR";
+//
+// ERROR_OCCURRED is the catch-all: every ingested event notifies now (user
+// request, overriding the original "not every event" design — see
+// DECISIONS.md), and this is the type for an occurrence that isn't a new
+// group, a serious repeat, or a reactivation.
+export type NotificationType = "NEW_ERROR" | "SERIOUS_ERROR" | "REACTIVATED_ERROR" | "ERROR_OCCURRED" | "ASSIGNED_ERROR";
 
 /** Deep-links a mobile client to the specific error that triggered it. */
 export interface NotificationPayload {

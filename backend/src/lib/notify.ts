@@ -21,10 +21,6 @@ export async function notifyIfNeeded(
   }
 
   const type = determineNotificationType(event, persisted);
-  if (!type) {
-    return;
-  }
-
   const payload = buildNotificationPayload(type, project.id, event, persisted);
   await getNotificationService().notifyUser(project.ownerId, payload);
 }
