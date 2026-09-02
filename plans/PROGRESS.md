@@ -1777,3 +1777,125 @@ project membership, invite-to-register, error status"; `e7cb948` in
 provider beyond SMTP, per-project CORS, password reset, etc.) is tracked in
 `plans/DECISIONS.md`'s Deferred section, to be picked up only when
 explicitly instructed.
+
+## Post-Phase-15 — Real push delivery via Firebase Cloud Messaging (scaffolded)
+
+New scope, not pre-planned: the user is building a Flutter mobile app for
+the developer-facing side of this product and asked whether the backend can
+actually push a notification to that app when an error occurs. It couldn't
+— `ConsoleNotificationService` only logged. Scaffolded a real
+`FcmNotificationService` while the user sets up their Firebase project, so
+it's ready the moment a credential exists; not yet exercised against a real
+Firebase project (no credential available this session).
+
+**What was built:**
+- `backend/src/lib/notification.ts` gained `FcmNotificationService`, a
+  second `NotificationService` implementation using `firebase-admin`'s
+  Cloud Messaging API (`firebase-admin@14.3.0`, one new dependency). Sends
+  `{ notification: {title, body}, data: {type, projectId, errorGroupId} }`
+  to every one of the user's registered device tokens via `messaging.send()`.
+  A token FCM reports as `messaging/registration-token-not-registered`
+  (app uninstalled/token rotated) is deleted from `Device` automatically;
+  any other send failure is logged and left alone (could be transient).
+- `getNotificationService()` now selects `FcmNotificationService` only when
+  `FIREBASE_SERVICE_ACCOUNT_JSON_BASE64` is set (the service-account JSON
+  Firebase's console generates, base64-encoded to survive a single-line env
+  var) and parses successfully; otherwise falls back to
+  `ConsoleNotificationService`, unchanged — mirrors the existing
+  `SmtpEmailService`/`ConsoleEmailService` split in `lib/email.ts` exactly,
+  so this repo now has two instances of the same "real-if-configured,
+  honest-log-if-not" pattern rather than a one-off.
+- `backend/.env.example` documents the new var, including where in the
+  Firebase console to generate it and the exact `base64` command.
+  `docs/API.md`'s Notification Foundation section updated to describe both
+  implementations instead of stating flatly that nothing is delivered.
+
+**Tests performed:**
+- `npm run typecheck -w backend` — clean.
+- `npm run test -w backend` (no `DATABASE_URL`): 371 passed, 24 skipped,
+  unchanged from before this change — no existing test exercises
+  `FcmNotificationService` yet (no credential to test against; see Known
+  limitations).
+- `npm run build -w backend` — compiles clean, all 23 routes listed as
+  before. `find backend/.next -iname '*.test.*'` — empty.
+
+**Known limitations:**
+- **Not yet verified against a real Firebase project** — the user is
+  creating one after this session. `FcmNotificationService` has no
+  automated test coverage (would need either a real credential + live send,
+  or mocking `firebase-admin`'s `getMessaging()`) and hasn't been exercised
+  end-to-end. Treat as implemented-but-unverified until a credential is
+  configured and a real device receives a push.
+- Sends are one `messaging.send()` call per device, not `sendEachForMulticast`
+  — fine at today's per-user device counts (registration is 1:1 with a
+  physical device already), revisit only if a user with many simultaneous
+  devices becomes a real scenario.
+
+## Post-Phase-15 — SDK: XHR interception (0.2.0 → 0.3.0)
+
+New scope, not pre-planned: the user embedded the SDK (via the jsDelivr CDN
+build) into a real host app — a legacy AngularJS payroll app whose HTTP
+calls go through `$http`, which uses `XMLHttpRequest`, not `fetch`. A
+genuine server error (`500` on a report endpoint) never showed up as a
+captured event, because Phase 3 only ever intercepted `fetch` (see
+`DECISIONS.md`'s Phase 3 note and former Deferred-section entry). Closed
+that gap.
+
+**What was built:**
+- `sdk/src/capture/xhr.ts` — `installXhrInterceptor()`, the XHR counterpart
+  to `capture/network.ts`'s `installFetchInterceptor()`. Patches
+  `XMLHttpRequest.prototype.open`/`send` once (module-level `installed`
+  guard, same pattern as every other install-once capture module) to record
+  method/URL at `open()` time (URL scrubbed via `scrubUrl()`, same as
+  fetch), then attaches `load`/`error`/`timeout`/`abort` listeners via
+  `addEventListener` on each request instance — never overwrites
+  `onload`/`onerror`/etc., so it composes with whatever the host app itself
+  attaches, matching this repo's "never clobber the host's own handler"
+  convention. A `load` with `status` outside 200-299 is captured as `"http"`
+  with `statusCode`; `error`/`timeout`/`abort` are captured as `"http"` with
+  no `statusCode` (mirrors how a rejected `fetch` is represented). Only
+  method/URL/status captured — no headers/bodies, same privacy guarantee as
+  `fetch` capture.
+- `index.ts`: `init()` now also calls `installXhrInterceptor()`, sharing the
+  same `onCapture` callback as every other capture source.
+- `sdk/README.md`'s "What it captures" section and "Known limitations"
+  updated — no longer states XHR is unsupported. `DECISIONS.md`'s Phase 3
+  note annotated with when/why this was added; the corresponding Deferred
+  entry removed.
+- No anti-recursion concern here: `transport/send.ts`'s `sendEvent()` (the
+  SDK's own outbound POST) uses `fetch`, not XHR, so patching
+  `XMLHttpRequest` doesn't risk the SDK observing its own telemetry calls.
+
+**Tests performed:**
+- `sdk/src/capture/xhr.test.ts` — non-success response captured with
+  correct status/method/URL, successful response not captured, `error`/
+  `timeout`/`abort` each captured with the right message and no
+  `statusCode`, method normalized to uppercase, sensitive query param
+  redacted, install-once guard. One test originally tried `open("", ...)`
+  to exercise a "default to GET" fallback — jsdom (matching real browsers)
+  throws `SyntaxError` on an empty method before that fallback could ever
+  run, so it isn't a reachable real-world case; replaced with a
+  method-casing test instead.
+- `npm run typecheck -w sdk` — clean.
+- `npm run test -w sdk` — 77 passed (was 69), 0 skipped.
+- `npm run build -w sdk` — clean; `find sdk/dist -iname '*.test.*'` empty.
+- Live-verified indirectly: the user's payroll app console showed a `500`
+  on `POST /reports/daily_hours_worked/read_pagination/` (an AngularJS
+  `$http` call) that the pre-XHR-interceptor SDK build did not capture,
+  confirming the gap this closes. Not yet re-verified live post-fix — that
+  requires publishing `@vanceeq/canary@0.3.0` and the host page picking up
+  the new CDN build (jsDelivr caches by resolved version; the host's
+  `<script>` tag has no version pinned, so it should pick up the latest
+  publish, but this hasn't been confirmed live yet).
+
+**Known limitations:**
+- Not yet published to npm / verified against the live payroll app — version
+  bumped to `0.3.0` locally and built, but publishing itself wasn't done
+  this session (a public, hard-to-reverse action) — confirm with the user
+  before running `npm publish`.
+- The *cause* of a captured `500` (a server-side Python traceback, in the
+  payroll app's case) is never visible to the SDK — client-side capture can
+  only ever see the fact that a request failed, never server-side log/stack
+  detail, and the SDK deliberately never reads response bodies even when a
+  backend's debug mode puts a traceback in one. Seeing that would need a
+  separate server-side integration, out of scope for this SDK.

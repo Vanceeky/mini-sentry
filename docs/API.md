@@ -549,13 +549,16 @@ SDK -> POST /events -> persist event -> determine notification (if any) -> Notif
 ```
 
 **`NotificationService`** (`backend/src/lib/notification.ts`) is an
-interface with one method, `notifyUser(userId, payload)`. The only
-implementation today, `ConsoleNotificationService`, looks up the user's
-registered devices and **logs** what would be sent to each — it does not
-call any real push API. Swapping in a real provider later (Expo Push, FCM)
-means writing a new class that implements the same interface and changing
-what `getNotificationService()` returns; nothing in the event-ingestion path
-would need to change.
+interface with one method, `notifyUser(userId, payload)`. Real delivery
+(`FcmNotificationService`) sends via Firebase Cloud Messaging — used
+whenever `FIREBASE_SERVICE_ACCOUNT_JSON_BASE64` is set (see
+`.env.example`); a dead/uninstalled-app token (FCM's
+`messaging/registration-token-not-registered`) is pruned from `Device`
+automatically on send failure. Without that credential configured,
+`ConsoleNotificationService` looks up the user's registered devices and
+**logs** what would be sent to each instead — it does not call any real push
+API. Either way, `getNotificationService()` is the only place that changes;
+nothing in the event-ingestion path needs to.
 
 **Trigger rules** — at most **one** notification per event, never more, and
 most events trigger none:
@@ -877,10 +880,11 @@ resets).
   search across `stack`/`url`, no full-text index.
 - The SDK's outbound `fetch` doesn't explicitly set `credentials: "omit"` (a
   pre-existing minor discrepancy noted, not introduced, by Phase 7).
-- **Notifications are logged, not delivered** — no real push provider (Expo
-  Push, FCM) is wired up; `ConsoleNotificationService` logs exactly what
-  would be sent. Wiring a real provider is future work behind the same
-  `NotificationService` interface.
+- **Real push delivery (FCM) is implemented but not yet live-verified**
+  against a real Firebase project/device — see `plans/PROGRESS.md`'s
+  Post-Phase-15 entry. Falls back to `ConsoleNotificationService` (logs
+  exactly what would be sent) whenever `FIREBASE_SERVICE_ACCOUNT_JSON_BASE64`
+  isn't configured.
 - **No `GET /api/v1/devices`** — only register/delete exist, per the brief;
   there's no way to list a user's registered devices over the API today
   (inspect via `npm run db:studio -w backend` or `psql`).

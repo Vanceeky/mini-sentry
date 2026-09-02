@@ -89,6 +89,8 @@ re-litigate them without cause.
   interception is a separate, more invasive patch (`XMLHttpRequest.prototype.open`/
   `send`) for marginal MVP value when most modern code (and any framework this SDK
   would sit under) uses `fetch`. Can be added later if a real host app needs it.
+  (Added post-Phase-15 once a real host app — a legacy AngularJS app using `$http`,
+  which uses XHR — needed it; see Post-Phase-15 in `PROGRESS.md`.)
 - **What counts as a "non-success" response**: `!response.ok`, i.e. any status outside
   200-299 (covers both 4xx and 5xx) — matches the Fetch API's own notion of success and
   needs no extra configuration.
@@ -1104,13 +1106,50 @@ pending, unusable either way) and deleted them, then ran
 for the exact DDL, and `plans/PROGRESS.md`'s Phase 15 entry for the full
 rollout sequence and live verification.
 
-## Deferred (future phases, not implemented now)
+## Post-Phase-15 — Real push delivery via Firebase Cloud Messaging (scaffolded)
 
-- XHR interception: only fetch is intercepted (see Phase 3 above) — the brief
-  explicitly allows deferring XHR if it adds substantial complexity. Revisit if a real
-  host app needs it.
-- Real push provider integration (Expo Push, FCM): the `NotificationService`
-  interface exists (Phase 12); no concrete provider is wired up.
+- **FCM chosen over Expo Push**: the user's mobile client is a Flutter app,
+  not Expo/React Native — Flutter's own `firebase_messaging` package talks
+  to FCM directly, and FCM covers both iOS (via APNs under the hood) and
+  Android from one credential and one send API. Expo Push would add a
+  second hop (Expo's servers -> APNs/FCM) that only makes sense for an Expo
+  client, which this isn't.
+- **Credential shape: whole service-account JSON, base64-encoded into one
+  env var** (`FIREBASE_SERVICE_ACCOUNT_JSON_BASE64`), not individual
+  `project_id`/`client_email`/`private_key` env vars. The downloaded
+  credential is exactly what `firebase-admin`'s `cert()` expects as one
+  object; splitting it into separate vars would mean reassembling it at
+  runtime for no benefit, and a multiline PEM private key inside a plain
+  (non-base64) env var is fragile across different `.env` parsers and
+  hosting providers. Same reasoning Vercel/most platforms document for this
+  exact credential shape.
+- **Falls back to `ConsoleNotificationService` when unconfigured, exactly
+  like `SmtpEmailService`/`ConsoleEmailService` (Phase 15)** — this repo now
+  has two independent instances of the identical "real-if-configured,
+  otherwise honest logging" pattern (see `lib/email.ts` and
+  `lib/notification.ts`). Kept them structurally parallel rather than
+  inventing a different fallback shape for the second one.
+- **Dead-token cleanup scoped to exactly one FCM error code**
+  (`messaging/registration-token-not-registered`): this is FCM's own
+  documented signal that the token itself is permanently invalid (uninstall,
+  token rotation past its old value). Any other send failure (network error,
+  malformed payload, FCM outage) is logged and the device row is left
+  alone — deleting a device on an ambiguous/transient failure would be a
+  destructive overreaction that could silently unregister a working device.
+- **Not yet live-verified**: scaffolded ahead of the user actually creating
+  their Firebase project and generating a service-account key (asked for
+  proactively, "while you're setting up the account"), so there's no
+  credential to test against yet. Flagged explicitly in
+  `plans/PROGRESS.md`'s Known Limitations as implemented-but-unverified,
+  per this repo's "no fake functionality presented as working" guardrail —
+  the code path is real, but "sends a push that actually arrives on a real
+  device" hasn't been confirmed live yet the way every other phase's
+  functionality has been.
+
+## Deferred (future phases, not implemented now)
+- Live-verified FCM delivery: `FcmNotificationService` (Post-Phase-15 above)
+  is implemented but untested against a real Firebase project/device — no
+  credential existed at implementation time.
 - Real email provider integration beyond SMTP: Phase 15 wired up
   `SmtpEmailService` (nodemailer, e.g. Gmail + App Password) behind the
   `EmailService` interface; a dedicated transactional-email provider
