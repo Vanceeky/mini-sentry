@@ -1183,6 +1183,25 @@ rollout sequence and live verification.
   integration suite was only run without `DATABASE_URL` after that change,
   never actually exercised until now.
 
+## Post-Phase-15 — `canary-backend` becomes the live source for backend work
+
+**2026-09-02.** Backend code changes have been landing in both
+`mini-sentry/backend/` and the separate, standalone `canary-backend` repo
+every session since the FCM work — each change hand-mirrored, file by file,
+verified byte-identical before each commit. The user asked directly to stop
+maintaining both: going forward, `canary-backend` (already the actual Vercel
+deploy target — see the deploy-readiness entry above) is the live source for
+backend development; `mini-sentry/backend/` is a frozen historical snapshot
+as of this commit, not something future sessions should edit expecting it to
+reach production. `docs/API.md` here stays manually kept in sync regardless,
+since it's the canonical API-contract reference the three frontend teams
+build against (per `CLAUDE.md`'s own framing) — only the *code* mirroring
+stops. `plans/PROGRESS.md`/`plans/DECISIONS.md` continue recording history
+in this repo, since `canary-backend` has no equivalent files (only its own
+`README.md` and self-hosted `docs/API.md`). See `CLAUDE.md`'s matching
+callout, added at the same time so a fresh session reads this before making
+any backend edit here.
+
 ## Deferred (future phases, not implemented now)
 - Live-verified FCM delivery: `FcmNotificationService` (Post-Phase-15 above)
   is implemented but untested against a real Firebase project/device — no

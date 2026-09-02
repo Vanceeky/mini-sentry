@@ -10,6 +10,18 @@ The backend serves three separate frontend teams (landing/onboarding web app, we
 dashboard, mobile app) building independently against `docs/API.md` — this repo does
 not build any of those UIs; it only builds/owns the backend and API contract.
 
+**`backend/` here is a frozen historical snapshot, not the live source, as of
+2026-09-02.** `Vanceeky/canary-backend` (a separate, standalone repo, no
+shared git history — see `plans/PROGRESS.md`'s deploy-readiness entry) is
+what Vercel actually deploys and is now where active backend development
+happens, per explicit user request. Do **not** make backend code changes
+here expecting them to reach production — edit
+`/Users/ivanisnice/Desktop/canary-backend` directly instead. `docs/API.md`
+in this repo is still kept in sync manually as the canonical API-contract
+reference for the three frontend teams above; `plans/PROGRESS.md` and
+`plans/DECISIONS.md` continue recording history here too. See
+`plans/DECISIONS.md`'s matching entry for the full reasoning.
+
 ## Scope and history
 
 This project is built one phase at a time against `plans/PROJECT_PLAN.md`.
