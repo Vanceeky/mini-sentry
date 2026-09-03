@@ -1202,6 +1202,38 @@ in this repo, since `canary-backend` has no equivalent files (only its own
 callout, added at the same time so a fresh session reads this before making
 any backend edit here.
 
+## canary-backend-only — Styled invitation emails, real bug found in a merge
+
+Code for this entry lives only in `canary-backend` now (per the entry
+above) — recorded here for history since that repo has no equivalent log.
+
+- **Invitation emails gained a real HTML body** (`src/lib/email.ts`) —
+  Canary-branded header, a real button-styled CTA linking to the accept
+  page, a monospace token block for the no-`WEB_APP_BASE_URL` fallback.
+  The existing plain-text version is kept as the email's text/plain part
+  (`nodemailer`'s `sendMail` accepts both; clients pick whichever they
+  render). `inviterName`/`projectName` are user-controlled strings, so
+  they're HTML-escaped before interpolation — the plain-text version never
+  needed this since it can't execute markup.
+- **A concurrent upstream fix collided on the same file**: while this was
+  in progress, two unrelated fixes landed directly on `canary-backend`'s
+  `main` — `WEB_APP_BASE_URL` now defaults to the real deployed dashboard
+  URL instead of requiring the env var, and `GET /projects/:projectId`
+  was switched from owner-only (`findOwnedProject`) to
+  `resolveProjectAccess` (owner OR member), fixing project members
+  getting incorrectly locked out of viewing a project they belong to.
+  Merged cleanly (non-overlapping lines in `email.ts`).
+- **A real, confirmed bug was found in that merge and fixed**: the GET
+  route's own unit test (`route.test.ts`) still mocked `findOwnedProject`
+  after the switch to `resolveProjectAccess` — leaving the real function
+  unmocked, so the test was silently hitting a live Prisma call. It passed
+  or failed based on real database state (500 when Postgres was
+  unreachable, 404 always otherwise, never 200) rather than verifying the
+  route's actual logic. Fixed by mocking `@/lib/access`'s
+  `resolveProjectAccess` instead. Caught only because the full suite was
+  re-run with `DATABASE_URL` set after the merge, not assumed clean from a
+  green no-DB run.
+
 ## Deferred (future phases, not implemented now)
 - Live-verified FCM delivery: `FcmNotificationService` (Post-Phase-15 above)
   is implemented but untested against a real Firebase project/device — no
