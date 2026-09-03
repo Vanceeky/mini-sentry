@@ -1234,6 +1234,40 @@ above) — recorded here for history since that repo has no equivalent log.
   re-run with `DATABASE_URL` set after the merge, not assumed clean from a
   green no-DB run.
 
+## canary-backend-only — Ingestion notifications were owner-only, silently skipping members
+
+Code for this entry lives only in `canary-backend` now (per the entry
+above) — recorded here for history since that repo has no equivalent log.
+
+- **Reported by the user's mobile-side teammate**: a fresh 500-status HTTP
+  event ingested fine (`{success:true}`, visible in the app), but no FCM
+  push arrived on a device with a confirmed-working setup — the same
+  delivery path that `PATCH /errors/:id` → `ASSIGNED_ERROR` pushes use
+  successfully.
+- **Root cause**: `lib/notify.ts`'s `notifyIfNeeded()` has, since Phase 12,
+  only ever notified `project.ownerId` — `if (!project.ownerId) return`,
+  then `notifyUser(project.ownerId, payload)`. Phase 15 later added direct
+  `ProjectMember`s (self-assign, read access, etc.), but ingestion
+  notifications were never revisited to include them. A member who isn't
+  the project's owner — e.g. someone testing push on a shared project they
+  were invited to — silently never gets an ingestion notification, even
+  though the exact same `NotificationService`/FCM path works fine for them
+  when *they're* the direct target (assignment notifies `assigneeId`, not
+  the owner). No exception, no log line — a plain early `return`, which is
+  why it looked like `determineNotificationType()`/`FcmNotificationService`
+  were never being reached at all.
+- **Fix**: `notifyIfNeeded()` now queries `ProjectMember` for the project
+  and notifies the owner (if any) **and** every member, via
+  `Promise.all(recipientIds.map(...))`. The owner never has their own
+  `ProjectMember` row (see `schema.prisma`), so there's no double-notify.
+  Only returns early when there's truly no owner and no members.
+- **Tests**: `notify.test.ts` updated to mock `./db`'s
+  `projectMember.findMany`; added cases for "notifies every member in
+  addition to the owner" and "notifies members even when the project has no
+  owner". `npm run test`/`npm run typecheck` in `canary-backend` both clean
+  (374 passed, 24 skipped — DB-gated integration tests weren't re-run
+  against real Postgres this session).
+
 ## Deferred (future phases, not implemented now)
 - Live-verified FCM delivery: `FcmNotificationService` (Post-Phase-15 above)
   is implemented but untested against a real Firebase project/device — no

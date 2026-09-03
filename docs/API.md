@@ -337,11 +337,11 @@ window; further events in the same window get `429 RATE_LIMITED` with a
 already-validated API key consumes a bucket).
 
 **Side effect (Phase 12):** after persisting, this endpoint may trigger a
-push notification to the project owner's registered devices — see
-Notifications below. This is entirely best-effort: a notification failure is
-logged server-side and never affects this endpoint's response — an event
-that persisted successfully always returns `200`, whether or not a
-notification fired.
+push notification to the registered devices of the project's owner and
+every project member — see Notifications below. This is entirely
+best-effort: a notification failure is logged server-side and never
+affects this endpoint's response — an event that persisted successfully
+always returns `200`, whether or not a notification fired.
 
 **Error responses:** see Error Responses above; all apply to this endpoint.
 
@@ -585,6 +585,12 @@ the `ERROR_OCCURRED` fallback.
 `message` is `"<statusCode> <method> <url>"` for `"http"` events, or the
 event's own `message` otherwise. Registering/removing the devices that
 receive these notifications is documented under Devices above.
+
+Every ingestion-time notification goes to the project's **owner and every
+project member** (Phase 15 members were folded into this after launch —
+prior to that, only the owner was notified). Assignment notifications
+(`ASSIGNED_ERROR`, below) go only to whoever was actually assigned, owner or
+member.
 
 `ASSIGNED_ERROR` (Phase 14) is a fifth, separate trigger, fired only by the
 error assignment endpoint (see the Errors section's `PATCH` endpoint above),
